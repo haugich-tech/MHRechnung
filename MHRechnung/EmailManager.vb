@@ -125,4 +125,46 @@ Public Class EmailManager
         End Using
     End Sub
 
+    ''' <summary>Schickt eine Archiv-Kopie der Rechnung an das eigene Konto (Absender = Empfänger),
+    ''' damit der Versand im eigenen Postfach nachvollziehbar ist. Kann im Tab "Einstellungen"
+    ''' abgeschaltet werden; ist ohne gesetzten Schlüssel standardmäßig aktiv.</summary>
+    Public Shared Sub SendeAusgangskopie(reNr As String, kundenName As String, kundenEmail As String, betrag As Decimal, pdfPfad As String)
+        Dim s = LadeEinstellungen()
+
+        If GetSetting(s, "prog_ausgangskopie", "True") <> "True" Then Return
+
+        Dim smtpServer = GetSetting(s, "smtp_server", "")
+        Dim smtpPortStr = GetSetting(s, "smtp_port", "587")
+        Dim smtpUser = GetSetting(s, "smtp_user", "")
+        Dim smtpPass = GetSetting(s, "smtp_pass", "")
+
+        If String.IsNullOrWhiteSpace(smtpServer) OrElse String.IsNullOrWhiteSpace(smtpUser) OrElse String.IsNullOrWhiteSpace(smtpPass) Then Return
+
+        Dim smtpPort As Integer = 587
+        Integer.TryParse(smtpPortStr, smtpPort)
+        If smtpPort = 465 Then smtpPort = 587
+
+        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12
+
+        Using mail As New MailMessage()
+            mail.From = New MailAddress(smtpUser)
+            mail.To.Add(smtpUser)
+            mail.Subject = $"Ausgangsrechnung an ({kundenName})"
+            mail.Body = $"An: {kundenName}" & vbCrLf &
+                        $"E-Mail: {kundenEmail}" & vbCrLf &
+                        $"Rechnungsnummer: {reNr}" & vbCrLf &
+                        $"Gesamtbetrag: {betrag:N2} €"
+
+            If File.Exists(pdfPfad) Then mail.Attachments.Add(New Attachment(pdfPfad))
+
+            Using client As New SmtpClient(smtpServer, smtpPort)
+                client.Credentials = New NetworkCredential(smtpUser, smtpPass)
+                client.EnableSsl = True
+                client.Timeout = 10000
+
+                client.Send(mail)
+            End Using
+        End Using
+    End Sub
+
 End Class

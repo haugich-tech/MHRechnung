@@ -85,6 +85,7 @@ Public Class Form1
     ' --- Elemente für Tab 5 (Einstellungen) ---
     Private chkE_MengenNullen As New CheckBox()
     Private chkE_AutoBackup As New CheckBox()
+    Private chkE_Ausgangskopie As New CheckBox() With {.Checked = True}
     Private cbE_DruckAnzahl As New ComboBox() With {.DropDownStyle = ComboBoxStyle.DropDownList}
     Private cbE_StandardDrucker As New ComboBox() With {.DropDownStyle = ComboBoxStyle.DropDownList}
 
@@ -1215,6 +1216,13 @@ Public Class Form1
                         Try
                             EmailManager.SendeRechnung(reNr, mitgliedMail, fertigesPdf)
                             anzahlMails += 1
+                            Try
+                                ' Archiv-Kopie an das eigene Konto ist nur ein Komfort-Feature -
+                                ' ein Fehler hier darf den erfolgreichen Rechnungsversand nicht
+                                ' als fehlgeschlagen melden, deshalb eigener, stiller Catch-Block.
+                                EmailManager.SendeAusgangskopie(reNr, rData("name"), mitgliedMail, CDec(rData("brutto")), fertigesPdf)
+                            Catch
+                            End Try
                         Catch ex As Exception
                             fehlerListe.Add($"Rechnung {reNr}: E-Mail an {mitgliedMail} fehlgeschlagen - {ex.Message}")
                         End Try
@@ -1819,6 +1827,7 @@ Public Class Form1
                         Case "text_email" : txtE_TextEmail.Text = val
                         Case "prog_mengen_nullen" : chkE_MengenNullen.Checked = (val = "True")
                         Case "prog_auto_backup" : chkE_AutoBackup.Checked = (val = "True")
+                        Case "prog_ausgangskopie" : chkE_Ausgangskopie.Checked = (val = "True")
                         Case "prog_druck_anzahl" : cbE_DruckAnzahl.Text = val
                         Case "prog_standard_drucker" : cbE_StandardDrucker.Text = val
                         Case "firma_name" : txtE_FirmaName.Text = val
@@ -1888,6 +1897,7 @@ Public Class Form1
             Using conn = DatenbankManager.HoleVerbindung()
                 SpeichereEinstellungDB(conn, "prog_mengen_nullen", chkE_MengenNullen.Checked.ToString())
                 SpeichereEinstellungDB(conn, "prog_auto_backup", chkE_AutoBackup.Checked.ToString())
+                SpeichereEinstellungDB(conn, "prog_ausgangskopie", chkE_Ausgangskopie.Checked.ToString())
                 SpeichereEinstellungDB(conn, "prog_druck_anzahl", cbE_DruckAnzahl.Text)
                 SpeichereEinstellungDB(conn, "prog_standard_drucker", cbE_StandardDrucker.Text)
                 SpeichereEinstellungDB(conn, "firma_name", txtE_FirmaName.Text.Trim())
@@ -2696,7 +2706,7 @@ Public Class Form1
         Dim pnlMain As New Panel With {.Dock = DockStyle.Fill, .Padding = New Padding(20), .AutoScroll = True}
 
         ' 1. Programmeinstellungen
-        Dim gbProg As New GroupBox With {.Text = "1. Programmeinstellungen & Workflow", .Location = New Point(20, 20), .Size = New Size(1050, 180)}
+        Dim gbProg As New GroupBox With {.Text = "1. Programmeinstellungen & Workflow", .Location = New Point(20, 20), .Size = New Size(1050, 215)}
         StyleGroupBox(gbProg)
 
         chkE_MengenNullen.Text = "Nach Rechnungs-Erstellung: Alle Artikel-Mengen automatisch leeren"
@@ -2734,10 +2744,16 @@ Public Class Form1
         btnBackupManu.Location = New Point(20, 135)
         AddHandler btnBackupManu.Click, AddressOf BtnBackupManu_Click
 
-        gbProg.Controls.AddRange({chkE_MengenNullen, lblKopien, cbE_DruckAnzahl, lblDrucker, cbE_StandardDrucker, chkE_AutoBackup, btnBackupManu})
+        chkE_Ausgangskopie.Text = "Kopie jeder versendeten Rechnung per E-Mail archivieren (Betreff „Ausgangsrechnung an (...)“)"
+        chkE_Ausgangskopie.Location = New Point(20, 178)
+        chkE_Ausgangskopie.AutoSize = True
+        chkE_Ausgangskopie.Font = FONT_NORMAL
+        chkE_Ausgangskopie.ForeColor = CLR_TEXT_DUNKEL
+
+        gbProg.Controls.AddRange({chkE_MengenNullen, lblKopien, cbE_DruckAnzahl, lblDrucker, cbE_StandardDrucker, chkE_AutoBackup, btnBackupManu, chkE_Ausgangskopie})
 
         ' 2. Firmenprofil
-        Dim gbFirma As New GroupBox With {.Text = "2. Firmenprofil & Kontakt", .Location = New Point(20, 220), .Size = New Size(1050, 105)}
+        Dim gbFirma As New GroupBox With {.Text = "2. Firmenprofil & Kontakt", .Location = New Point(20, 255), .Size = New Size(1050, 105)}
         StyleGroupBox(gbFirma)
         ErstelleFeld(gbFirma, "Firmenname (GbR)", txtE_FirmaName, 20, 28, 250)
         ErstelleFeld(gbFirma, "Straße & Hausnummer", txtE_FirmaStrasse, 290, 28, 200)
@@ -2747,7 +2763,7 @@ Public Class Form1
         ErstelleFeld(gbFirma, "E-Mail", txtE_FirmaMail, 870, 28, 160)
 
         ' 3. Bank, Steuernummer & MwSt-Sätze
-        Dim gbBank As New GroupBox With {.Text = "3. Bankverbindung, Steuernummer & MwSt-Sätze (§24 UStG)", .Location = New Point(20, 345), .Size = New Size(1050, 105)}
+        Dim gbBank As New GroupBox With {.Text = "3. Bankverbindung, Steuernummer & MwSt-Sätze (§24 UStG)", .Location = New Point(20, 380), .Size = New Size(1050, 105)}
         StyleGroupBox(gbBank)
         ErstelleFeld(gbBank, "IBAN", txtE_IBAN, 20, 28, 220)
         ErstelleFeld(gbBank, "BIC", txtE_BIC, 260, 28, 120)
@@ -2757,7 +2773,7 @@ Public Class Form1
         ErstelleFeld(gbBank, "Steuernummer", txtE_Steuer, 810, 28, 210)
 
         ' 4. Texte
-        Dim gbTexte As New GroupBox With {.Text = "4. Rechnungstexte & E-Mail Vorlage", .Location = New Point(20, 470), .Size = New Size(1050, 260)}
+        Dim gbTexte As New GroupBox With {.Text = "4. Rechnungstexte & E-Mail Vorlage", .Location = New Point(20, 505), .Size = New Size(1050, 260)}
         StyleGroupBox(gbTexte)
         Dim lblInfo As New Label With {
             .Text = "  Platzhalter: [RE-nummer]",
@@ -2771,7 +2787,7 @@ Public Class Form1
         ErstelleMultiFeld(gbTexte, "Standard E-Mail Text", txtE_TextEmail, 700, 55, 330, 160)
 
         ' 5. SMTP
-        Dim gbSmtp As New GroupBox With {.Text = "5. E-Mail Postausgangsserver (SMTP)", .Location = New Point(20, 750), .Size = New Size(1050, 105)}
+        Dim gbSmtp As New GroupBox With {.Text = "5. E-Mail Postausgangsserver (SMTP)", .Location = New Point(20, 785), .Size = New Size(1050, 105)}
         StyleGroupBox(gbSmtp)
         ErstelleFeld(gbSmtp, "SMTP-Server", txtE_SmtpServer, 20, 28, 260)
         ErstelleFeld(gbSmtp, "Port (587 / 465)", txtE_SmtpPort, 300, 28, 140)
@@ -2783,7 +2799,7 @@ Public Class Form1
         ' Geschäftsführer und mit Bürositz = Firmensitz zieht die Rechnung ihre schlanke
         ' Kontakt-Fußzeile automatisch aus dem Firmenprofil oben (Abschnitt 2).
         ' Höhe 170 für zwei Zeilen (wie ursprünglich) - 65/105 waren zu knapp bemessen.
-        Dim gbSystem As New GroupBox With {.Text = "6. Speicherort", .Location = New Point(20, 875), .Size = New Size(1050, 170)}
+        Dim gbSystem As New GroupBox With {.Text = "6. Speicherort", .Location = New Point(20, 910), .Size = New Size(1050, 170)}
         StyleGroupBox(gbSystem)
         ErstelleFeld(gbSystem, "Haupt-Speicherpfad", txtE_Speicherpfad, 20, 28, 780)
         Dim btnSpeicherpfadAendern = MacheSekundaerButton("Ändern…", 130, 28)
@@ -2804,12 +2820,12 @@ Public Class Form1
 
         ' Speichern-Button
         Dim btnSpeichern = MachePrimaerButton("💾  EINSTELLUNGEN SPEICHERN", 270, 44)
-        btnSpeichern.Location = New Point(20, 1065)
+        btnSpeichern.Location = New Point(20, 1100)
         AddHandler btnSpeichern.Click, AddressOf BtnSpeichern_Einstellungen_Click
 
         ' Gefahrenzone
         Dim pnlGefahr As New Panel With {
-            .Location = New Point(20, 1130),
+            .Location = New Point(20, 1165),
             .Size = New Size(1050, 210),
             .BackColor = Color.FromArgb(255, 248, 248)
         }
@@ -2862,7 +2878,7 @@ Public Class Form1
         ' Angabe berechnet WinForms die AutoScroll-Größe bei absolut positionierten Controls
         ' nicht zuverlässig, wodurch die Gefahrenzone unten aus dem sichtbaren Tab herausragt,
         ' statt dass sich ein Scrollbalken zeigt.
-        pnlMain.AutoScrollMinSize = New Size(1100, 1370)
+        pnlMain.AutoScrollMinSize = New Size(1100, 1405)
 
         TabEinstellungen.Controls.Add(pnlMain)
     End Sub
