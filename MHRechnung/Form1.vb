@@ -1892,6 +1892,18 @@ Public Class Form1
         cmd.ExecuteNonQuery()
     End Sub
 
+    Private Sub BtnSpeicherpfadAendern_Click(sender As Object, e As EventArgs)
+        Using fbd As New FolderBrowserDialog With {
+            .Description = "Haupt-Speicherpfad für Rechnungen (PDF/XML/Excel) auswählen",
+            .ShowNewFolderButton = True
+        }
+            If Directory.Exists(txtE_Speicherpfad.Text) Then fbd.SelectedPath = txtE_Speicherpfad.Text
+            If fbd.ShowDialog() = DialogResult.OK Then
+                txtE_Speicherpfad.Text = fbd.SelectedPath
+            End If
+        End Using
+    End Sub
+
     Private Sub BtnDbPfadAendern_Click(sender As Object, e As EventArgs)
         Dim neuerPfad As String = ZeigeDatenbankWahlDialog(erzwingeWahl:=False)
         If String.IsNullOrWhiteSpace(neuerPfad) Then Return
@@ -2805,7 +2817,11 @@ Public Class Form1
         ' Höhe 170 für zwei Zeilen (wie ursprünglich) - 65/105 waren zu knapp bemessen.
         Dim gbSystem As New GroupBox With {.Text = "6. Speicherort", .Location = New Point(20, 875), .Size = New Size(1050, 170)}
         StyleGroupBox(gbSystem)
-        ErstelleFeld(gbSystem, "Haupt-Speicherpfad", txtE_Speicherpfad, 20, 28, 310)
+        ErstelleFeld(gbSystem, "Haupt-Speicherpfad", txtE_Speicherpfad, 20, 28, 780)
+        Dim btnSpeicherpfadAendern = MacheSekundaerButton("Ändern…", 130, 28)
+        btnSpeicherpfadAendern.Location = New Point(820, 46)
+        AddHandler btnSpeicherpfadAendern.Click, AddressOf BtnSpeicherpfadAendern_Click
+        gbSystem.Controls.Add(btnSpeicherpfadAendern)
 
         ' Datenbank-Datei: NICHT in den Einstellungen selbst gespeichert (Henne-Ei-Problem -
         ' man müsste die DB erst öffnen, um den Pfad zu kennen), sondern in db-pfad.json
