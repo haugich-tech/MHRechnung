@@ -1235,49 +1235,18 @@ Public Class Form1
             Next
         End Using
 
+        ' Keine Excel-Zusammenfassung mehr: Die diente ursprünglich als Begleitliste
+        ' zur SEPA-Sammelüberweisung/-lastschrift für die Bank. Ohne SEPA hat sie
+        ' keinen Zweck mehr - die Übersicht gibt's bei Bedarf im Rechnungs-Archiv.
+        ' Stattdessen einfach den Ausgabeordner öffnen, damit die gerade erstellten
+        ' PDFs/E-Rechnungen gleich sichtbar sind.
         If verarbeiteteRechnungen.Count > 0 Then
-            btn.Text = "ERSTELLE EXCEL …"
-            Application.DoEvents()
-
             Dim jahr As String = DateTime.Now.Year.ToString()
-            Dim exportDir As String = Path.Combine(baseDir, jahr, "erstellt", "export")
-            If Not Directory.Exists(exportDir) Then Directory.CreateDirectory(exportDir)
-
-            Dim firstReNr = verarbeiteteRechnungen.First()("reNr")
-            Dim lastReNr = verarbeiteteRechnungen.Last()("reNr")
-            Dim sammelName = If(firstReNr = lastReNr, firstReNr, $"{firstReNr} - {lastReNr}")
-
+            Dim ausgabeOrdner As String = Path.Combine(baseDir, jahr, "erstellt")
             Try
-                Dim excelPath = Path.Combine(exportDir, sammelName & ".xlsx")
-                Using wb As New ClosedXML.Excel.XLWorkbook()
-                    Dim ws = wb.Worksheets.Add("Abrechnung")
-
-                    ws.Cell(1, 1).Value = "Rechnungsnummer"
-                    ws.Cell(1, 2).Value = "Name des Kunden"
-                    ws.Cell(1, 3).Value = "Rechnungsbetrag"
-                    ws.Cell(1, 4).Value = "Händlerrechnungsbeschreibung"
-
-                    Dim headerRange = ws.Range("A1:D1")
-                    headerRange.Style.Font.Bold = True
-                    headerRange.Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.LightSteelBlue
-
-                    Dim r As Integer = 3
-                    For Each re In verarbeiteteRechnungen
-                        ws.Cell(r, 1).Value = "'" & re("reNr")
-                        ws.Cell(r, 2).Value = re("name")
-                        ws.Cell(r, 3).Value = CDec(re("brutto"))
-                        ws.Cell(r, 3).Style.NumberFormat.Format = "#,##0.00 €"
-                        r += 1
-                    Next
-
-                    ws.Columns().AdjustToContents()
-                    ws.Column(4).Width = 35
-                    wb.SaveAs(excelPath)
-                End Using
-
-                Process.Start("explorer.exe", exportDir)
-            Catch ex As Exception
-                fehlerListe.Add("Excel-Erstellung fehlgeschlagen: " & ex.Message)
+                If Directory.Exists(ausgabeOrdner) Then Process.Start("explorer.exe", ausgabeOrdner)
+            Catch
+                ' Öffnen des Explorers ist nur Komfort - kein Grund, den Bericht als Fehler zu werten
             End Try
         End If
 
@@ -1300,7 +1269,6 @@ Public Class Form1
                        String.Join(vbCrLf, fehlerListe)
             MessageBox.Show(bericht, "Workflow mit Fehlern abgeschlossen", MessageBoxButtons.OK, MessageBoxIcon.Warning)
         Else
-            bericht &= vbCrLf & "Excel-Zusammenfassung wurde im Ausgabeordner erstellt."
             MessageBox.Show(bericht, "Workflow Abgeschlossen", MessageBoxButtons.OK, MessageBoxIcon.Information)
         End If
     End Sub
