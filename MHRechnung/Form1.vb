@@ -2682,18 +2682,20 @@ Public Class Form1
         ' Keine eigene Fußzeilen-Konfiguration mehr nötig: als Einzelunternehmer ohne
         ' Geschäftsführer und mit Bürositz = Firmensitz zieht die Rechnung ihre schlanke
         ' Kontakt-Fußzeile automatisch aus dem Firmenprofil oben (Abschnitt 2).
-        Dim gbSystem As New GroupBox With {.Text = "6. Speicherort", .Location = New Point(20, 875), .Size = New Size(1050, 65)}
+        ' Höhe 105 wie die anderen Ein-Zeilen-Gruppen (z.B. "5. SMTP") - 65 war zu knapp
+        ' bemessen und hat das Eingabefeld am unteren Rand abgeschnitten.
+        Dim gbSystem As New GroupBox With {.Text = "6. Speicherort", .Location = New Point(20, 875), .Size = New Size(1050, 105)}
         StyleGroupBox(gbSystem)
         ErstelleFeld(gbSystem, "Haupt-Speicherpfad", txtE_Speicherpfad, 20, 28, 310)
 
         ' Speichern-Button
         Dim btnSpeichern = MachePrimaerButton("💾  EINSTELLUNGEN SPEICHERN", 270, 44)
-        btnSpeichern.Location = New Point(20, 960)
+        btnSpeichern.Location = New Point(20, 1000)
         AddHandler btnSpeichern.Click, AddressOf BtnSpeichern_Einstellungen_Click
 
         ' Gefahrenzone
         Dim pnlGefahr As New Panel With {
-            .Location = New Point(20, 1025),
+            .Location = New Point(20, 1065),
             .Size = New Size(1050, 210),
             .BackColor = Color.FromArgb(255, 248, 248)
         }
@@ -2741,12 +2743,12 @@ Public Class Form1
 
         pnlMain.Controls.AddRange({gbProg, gbFirma, gbBank, gbTexte, gbSmtp, gbSystem, btnSpeichern, pnlGefahr})
 
-        ' Explizite Scroll-Größe: pnlGefahr (unterster Block) reicht bis Y=1235, mit ihrem
-        ' eigenen Rand ("Padding" von pnlMain) macht das rund 1260px Gesamthöhe. Ohne diese
+        ' Explizite Scroll-Größe: pnlGefahr (unterster Block) reicht bis Y=1275, mit ihrem
+        ' eigenen Rand ("Padding" von pnlMain) macht das rund 1300px Gesamthöhe. Ohne diese
         ' Angabe berechnet WinForms die AutoScroll-Größe bei absolut positionierten Controls
         ' nicht zuverlässig, wodurch die Gefahrenzone unten aus dem sichtbaren Tab herausragt,
         ' statt dass sich ein Scrollbalken zeigt.
-        pnlMain.AutoScrollMinSize = New Size(1100, 1260)
+        pnlMain.AutoScrollMinSize = New Size(1100, 1300)
 
         TabEinstellungen.Controls.Add(pnlMain)
     End Sub
