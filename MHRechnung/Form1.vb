@@ -86,6 +86,7 @@ Public Class Form1
     Private chkE_MengenNullen As New CheckBox()
     Private chkE_AutoBackup As New CheckBox()
     Private chkE_Ausgangskopie As New CheckBox() With {.Checked = True}
+    Private txtE_AusgangskopieEmail As New TextBox()
     Private cbE_DruckAnzahl As New ComboBox() With {.DropDownStyle = ComboBoxStyle.DropDownList}
     Private cbE_StandardDrucker As New ComboBox() With {.DropDownStyle = ComboBoxStyle.DropDownList}
 
@@ -1828,6 +1829,7 @@ Public Class Form1
                         Case "prog_mengen_nullen" : chkE_MengenNullen.Checked = (val = "True")
                         Case "prog_auto_backup" : chkE_AutoBackup.Checked = (val = "True")
                         Case "prog_ausgangskopie" : chkE_Ausgangskopie.Checked = (val = "True")
+                        Case "prog_ausgangskopie_email" : txtE_AusgangskopieEmail.Text = val
                         Case "prog_druck_anzahl" : cbE_DruckAnzahl.Text = val
                         Case "prog_standard_drucker" : cbE_StandardDrucker.Text = val
                         Case "firma_name" : txtE_FirmaName.Text = val
@@ -1898,6 +1900,7 @@ Public Class Form1
                 SpeichereEinstellungDB(conn, "prog_mengen_nullen", chkE_MengenNullen.Checked.ToString())
                 SpeichereEinstellungDB(conn, "prog_auto_backup", chkE_AutoBackup.Checked.ToString())
                 SpeichereEinstellungDB(conn, "prog_ausgangskopie", chkE_Ausgangskopie.Checked.ToString())
+                SpeichereEinstellungDB(conn, "prog_ausgangskopie_email", txtE_AusgangskopieEmail.Text.Trim())
                 SpeichereEinstellungDB(conn, "prog_druck_anzahl", cbE_DruckAnzahl.Text)
                 SpeichereEinstellungDB(conn, "prog_standard_drucker", cbE_StandardDrucker.Text)
                 SpeichereEinstellungDB(conn, "firma_name", txtE_FirmaName.Text.Trim())
@@ -2744,13 +2747,25 @@ Public Class Form1
         btnBackupManu.Location = New Point(20, 135)
         AddHandler btnBackupManu.Click, AddressOf BtnBackupManu_Click
 
-        chkE_Ausgangskopie.Text = "Kopie jeder versendeten Rechnung per E-Mail archivieren (Betreff „Ausgangsrechnung an (...)“)"
+        chkE_Ausgangskopie.Text = "Kopie jeder versendeten Rechnung per E-Mail archivieren an:"
         chkE_Ausgangskopie.Location = New Point(20, 178)
         chkE_Ausgangskopie.AutoSize = True
         chkE_Ausgangskopie.Font = FONT_NORMAL
         chkE_Ausgangskopie.ForeColor = CLR_TEXT_DUNKEL
 
-        gbProg.Controls.AddRange({chkE_MengenNullen, lblKopien, cbE_DruckAnzahl, lblDrucker, cbE_StandardDrucker, chkE_AutoBackup, btnBackupManu, chkE_Ausgangskopie})
+        ' Bewusst großzügiger Abstand zum Haken (X=650), da die Breite des Haken-Textes
+        ' zur Laufzeit vom tatsächlichen Font abhängt und hier nicht exakt vermessen werden
+        ' kann - lieber unnötig viel Luft lassen als ein Überlappungsrisiko eingehen.
+        txtE_AusgangskopieEmail.Location = New Point(650, 175)
+        txtE_AusgangskopieEmail.Size = New Size(300, 26)
+        txtE_AusgangskopieEmail.Font = FONT_NORMAL
+        txtE_AusgangskopieEmail.BorderStyle = BorderStyle.FixedSingle
+        txtE_AusgangskopieEmail.BackColor = CLR_WEISS
+
+        Dim tipAusgangskopie As New ToolTip()
+        tipAusgangskopie.SetToolTip(txtE_AusgangskopieEmail, "Leer lassen, um an die eigene Rechnungs-E-Mail-Adresse (siehe Firmenprofil) zu senden.")
+
+        gbProg.Controls.AddRange({chkE_MengenNullen, lblKopien, cbE_DruckAnzahl, lblDrucker, cbE_StandardDrucker, chkE_AutoBackup, btnBackupManu, chkE_Ausgangskopie, txtE_AusgangskopieEmail})
 
         ' 2. Firmenprofil
         Dim gbFirma As New GroupBox With {.Text = "2. Firmenprofil & Kontakt", .Location = New Point(20, 255), .Size = New Size(1050, 105)}

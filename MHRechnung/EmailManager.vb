@@ -144,11 +144,17 @@ Public Class EmailManager
         Integer.TryParse(smtpPortStr, smtpPort)
         If smtpPort = 465 Then smtpPort = 587
 
+        ' Empfänger der Archiv-Kopie ist frei einstellbar (Feld neben dem Haken in den
+        ' Einstellungen) und unabhängig von der Datenbank-Sicherung, die weiterhin fest an
+        ' smtp_user geht. Leeres Feld = Rückfalladresse smtp_user (bisheriges Verhalten).
+        Dim archivEmpfaenger As String = GetSetting(s, "prog_ausgangskopie_email", "")
+        If String.IsNullOrWhiteSpace(archivEmpfaenger) Then archivEmpfaenger = smtpUser
+
         ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12
 
         Using mail As New MailMessage()
             mail.From = New MailAddress(smtpUser)
-            mail.To.Add(smtpUser)
+            mail.To.Add(archivEmpfaenger)
             mail.Subject = $"Ausgangsrechnung an ({kundenName})"
             mail.Body = $"An: {kundenName}" & vbCrLf &
                         $"E-Mail: {kundenEmail}" & vbCrLf &
