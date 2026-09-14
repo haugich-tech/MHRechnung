@@ -41,7 +41,7 @@ Public Class Form1
     Private TabErfassung As New TabPage("Rechnungserfassung")
     Private TabKontrolle As New TabPage("Kontrolle & Stapel")
     Private TabArtikel As New TabPage("Artikelverwaltung")
-    Private TabMitglieder As New TabPage("Mitglieder")
+    Private TabMitglieder As New TabPage("Kunden")
     Private TabEinstellungen As New TabPage("Einstellungen")
     Private TabArchiv As New TabPage("Rechnungs-Archiv")
 
@@ -66,7 +66,7 @@ Public Class Form1
     ' --- Elemente für Tab 3 (Artikel) ---
     Private dgvArtikelVerwaltung As New DataGridView()
 
-    ' --- Elemente für Tab 4 (Mitglieder) ---
+    ' --- Elemente für Tab 4 (Kunden) ---
     Private WithEvents dgvMitglieder As New DataGridView()
     Private aktuelleMitgliedId As Integer = 0
 
@@ -1144,7 +1144,7 @@ Public Class Form1
                     Dim ws = wb.Worksheets.Add("Abrechnung")
 
                     ws.Cell(1, 1).Value = "Rechnungsnummer"
-                    ws.Cell(1, 2).Value = "Name des Mitglieds"
+                    ws.Cell(1, 2).Value = "Name des Kunden"
                     ws.Cell(1, 3).Value = "Rechnungsbetrag"
                     ws.Cell(1, 4).Value = "Händlerrechnungsbeschreibung"
 
@@ -1418,7 +1418,7 @@ Public Class Form1
     End Sub
 
     ' =========================================================================
-    ' TAB 4: MITGLIEDERVERWALTUNG LOGIK
+    ' TAB 4: KUNDENVERWALTUNG LOGIK
     ' =========================================================================
     Private Sub DgvMitglieder_SelectionChanged(sender As Object, e As EventArgs)
         If dgvMitglieder.CurrentRow IsNot Nothing AndAlso Not dgvMitglieder.CurrentRow.IsNewRow Then
@@ -1456,7 +1456,7 @@ Public Class Form1
 
     Private Sub BtnSpeichern_Mitglied_Click(sender As Object, e As EventArgs)
         If String.IsNullOrWhiteSpace(txtM_Nr.Text) OrElse String.IsNullOrWhiteSpace(txtM_Name.Text) Then
-            MessageBox.Show("Mitgliedsnummer und Name sind Pflichtfelder!", "Fehlende Daten", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            MessageBox.Show("Kundennummer und Name sind Pflichtfelder!", "Fehlende Daten", MessageBoxButtons.OK, MessageBoxIcon.Warning)
             Return
         End If
 
@@ -1484,11 +1484,11 @@ Public Class Form1
                 cmd.ExecuteNonQuery()
             End Using
 
-            MessageBox.Show("Mitglied erfolgreich gespeichert!", "Erfolg", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            MessageBox.Show("Kunde erfolgreich gespeichert!", "Erfolg", MessageBoxButtons.OK, MessageBoxIcon.Information)
             LadeMitgliederListe()
             LadeDaten()
         Catch ex As SQLiteException When ex.ErrorCode = SQLiteErrorCode.Constraint
-            MessageBox.Show("Diese Mitgliedsnummer existiert bereits! Bitte wähle eine andere.", "Fehler", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            MessageBox.Show("Diese Kundennummer existiert bereits! Bitte wähle eine andere.", "Fehler", MessageBoxButtons.OK, MessageBoxIcon.Error)
         Catch ex As Exception
             MessageBox.Show("Fehler beim Speichern: " & ex.Message, "Fehler", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
@@ -1497,14 +1497,14 @@ Public Class Form1
     Private Sub BtnLoeschen_Mitglied_Click(sender As Object, e As EventArgs)
         If aktuelleMitgliedId = 0 Then Return
 
-        Dim result = MessageBox.Show("Soll dieses Mitglied wirklich gelöscht werden?", "Löschen bestätigen", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+        Dim result = MessageBox.Show("Soll dieser Kunde wirklich gelöscht werden?", "Löschen bestätigen", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
         If result = DialogResult.Yes Then
             Using conn = DatenbankManager.HoleVerbindung()
                 Dim cmd As New SQLiteCommand("DELETE FROM mitglieder WHERE id = @id", conn)
                 cmd.Parameters.AddWithValue("@id", aktuelleMitgliedId)
                 cmd.ExecuteNonQuery()
             End Using
-            MessageBox.Show("Mitglied gelöscht.", "Erfolg", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            MessageBox.Show("Kunde gelöscht.", "Erfolg", MessageBoxButtons.OK, MessageBoxIcon.Information)
             BtnNeu_Mitglied_Click(Nothing, Nothing)
             LadeMitgliederListe()
             LadeDaten()
@@ -1512,11 +1512,11 @@ Public Class Form1
     End Sub
 
     Private Sub ExportiereMitgliederExcel(sender As Object, e As EventArgs)
-        Dim sfd As New SaveFileDialog() With {.Filter = "Excel Dateien|*.xlsx", .FileName = "MHRechnung_Mitgliederstamm.xlsx"}
+        Dim sfd As New SaveFileDialog() With {.Filter = "Excel Dateien|*.xlsx", .FileName = "MHRechnung_Kundenstamm.xlsx"}
         If sfd.ShowDialog() = DialogResult.OK Then
             Using wb As New XLWorkbook()
-                Dim ws = wb.Worksheets.Add("Mitglieder")
-                Dim headers = {"Mitglieds-Nr.", "Name", "Straße", "PLZ", "Ort", "Land", "Betriebsnummer", "Email", "Steuernummer"}
+                Dim ws = wb.Worksheets.Add("Kunden")
+                Dim headers = {"Kunden-Nr.", "Name", "Straße", "PLZ", "Ort", "Land", "Betriebsnummer", "Email", "Steuernummer"}
                 For c As Integer = 0 To headers.Length - 1
                     ws.Cell(1, c + 1).Value = headers(c)
                 Next
@@ -1622,7 +1622,7 @@ Public Class Form1
 
                     LadeMitgliederListe()
                     LadeDaten()
-                    MessageBox.Show($"{count} Mitglieder erfolgreich importiert/aktualisiert.", "Erfolg", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                    MessageBox.Show($"{count} Kunden erfolgreich importiert/aktualisiert.", "Erfolg", MessageBoxButtons.OK, MessageBoxIcon.Information)
                 End Using
             Catch ex As Exception
                 MessageBox.Show("Fehler beim Import: " & ex.Message, "Fehler", MessageBoxButtons.OK, MessageBoxIcon.Error)
@@ -1696,7 +1696,7 @@ Public Class Form1
         dgvMitglieder.ClearSelection()
 
         If fehlerListe.Count = 0 Then
-            MessageBox.Show($"TÜV bestanden! {gepruefteMitglieder} Mitglieder wurden geprüft — alle Daten sind korrekt.", "Prüfung erfolgreich", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            MessageBox.Show($"TÜV bestanden! {gepruefteMitglieder} Kunden wurden geprüft — alle Daten sind korrekt.", "Prüfung erfolgreich", MessageBoxButtons.OK, MessageBoxIcon.Information)
         Else
             Dim anzeige As String = String.Join(vbCrLf & vbCrLf, fehlerListe.Take(15))
             If fehlerListe.Count > 15 Then anzeige &= vbCrLf & vbCrLf & $"... und {fehlerListe.Count - 15} weitere Fehler."
@@ -2541,7 +2541,7 @@ Public Class Form1
         dgvMitglieder.Dock = DockStyle.Fill
         dgvMitglieder.ReadOnly = True
         pnlLeft.Controls.Add(dgvMitglieder)
-        pnlLeft.Controls.Add(MacheAbschnittsLabel("MITGLIEDERLISTE"))
+        pnlLeft.Controls.Add(MacheAbschnittsLabel("KUNDENLISTE"))
 
         ' Rechte Seite: Formular
         Dim pnlRight As New Panel With {.Dock = DockStyle.Fill, .Padding = New Padding(0, 8, 12, 12), .AutoScroll = True}
@@ -2550,7 +2550,7 @@ Public Class Form1
 
         Dim gbStamm As New GroupBox With {.Text = "1. Stammdaten", .Location = New Point(10, 40), .Size = New Size(720, 160)}
         StyleGroupBox(gbStamm)
-        ErstelleFeld(gbStamm, "Mitglieds-Nr.*", txtM_Nr, 20, 28, 150)
+        ErstelleFeld(gbStamm, "Kunden-Nr.*", txtM_Nr, 20, 28, 150)
         ErstelleFeld(gbStamm, "Firma / Name*", txtM_Name, 190, 28, 310)
         ErstelleFeld(gbStamm, "Versandart", cbM_Versand, 520, 28, 160)
         ErstelleFeld(gbStamm, "E-Mail Adresse", txtM_Email, 20, 90, 310)
@@ -3036,7 +3036,7 @@ Public Class Form1
 
                 LadeStapelverarbeitung()
                 Dim msg As String = $"{importCount} Rechnungen wurden erfolgreich importiert!"
-                If fehlerCount > 0 Then msg &= vbCrLf & vbCrLf & $"ACHTUNG: {fehlerCount} Rechnungen konnten nicht importiert werden (Mitgliedsnummer nicht gefunden)."
+                If fehlerCount > 0 Then msg &= vbCrLf & vbCrLf & $"ACHTUNG: {fehlerCount} Rechnungen konnten nicht importiert werden (Kundennummer nicht gefunden)."
                 MessageBox.Show(msg, "Import abgeschlossen", MessageBoxButtons.OK, If(fehlerCount > 0, MessageBoxIcon.Warning, MessageBoxIcon.Information))
             Catch ex As Exception
                 MessageBox.Show("Fehler beim Importieren der XML-Datei: " & ex.Message, "Fehler", MessageBoxButtons.OK, MessageBoxIcon.Error)
@@ -3045,7 +3045,7 @@ Public Class Form1
     End Sub
 
     Private Sub ExportiereMitgliederFuerSatellit(sender As Object, e As EventArgs)
-        Dim sfd As New SaveFileDialog() With {.Filter = "Textdatei|*.txt", .FileName = "MHRechnung_Mitglieder.txt"}
+        Dim sfd As New SaveFileDialog() With {.Filter = "Textdatei|*.txt", .FileName = "MHRechnung_Kunden.txt"}
         If sfd.ShowDialog() = DialogResult.OK Then
             Try
                 Dim zeilen As New List(Of String)
