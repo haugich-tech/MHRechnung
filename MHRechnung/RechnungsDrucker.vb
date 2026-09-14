@@ -120,12 +120,13 @@ Public Class RechnungsDrucker
         Dim kundenOrt As String = ""
         Dim kundenSteuer As String = ""
         Dim kundenBetrieb As String = ""
+        Dim kundenEmail As String = ""
         Dim rechnungsdatum As String = ""
         Dim lieferdatum As String = ""
         Dim positionen As New List(Of (bez As String, anz As Decimal, prs As Decimal, mwst As Decimal))
 
         Using conn = DatenbankManager.HoleVerbindung()
-            Dim sqlK = "SELECT r.datum, r.lieferdatum, m.name, m.strasse, m.plz, m.ort, m.steuernummer, m.betriebsnummer " &
+            Dim sqlK = "SELECT r.datum, r.lieferdatum, m.name, m.strasse, m.plz, m.ort, m.steuernummer, m.betriebsnummer, m.email " &
                        "FROM rechnungen r JOIN mitglieder m ON r.mitglied_id = m.id WHERE r.id = @id"
             Dim cmdK As New SQLiteCommand(sqlK, conn)
             cmdK.Parameters.AddWithValue("@id", reID)
@@ -139,6 +140,7 @@ Public Class RechnungsDrucker
                     kundenOrt = r("ort").ToString()
                     kundenSteuer = r("steuernummer").ToString()
                     kundenBetrieb = r("betriebsnummer").ToString()
+                    kundenEmail = r("email").ToString().Trim()
                 End If
             End Using
             If String.IsNullOrWhiteSpace(rechnungsdatum) Then rechnungsdatum = DateTime.Now.ToString("dd.MM.yyyy")
@@ -356,6 +358,15 @@ Public Class RechnungsDrucker
             If Not String.IsNullOrEmpty(firmaIBAN) Then drawInfoRow("IBAN:", firmaIBAN, True)
             If Not String.IsNullOrEmpty(firmaBIC) Then drawInfoRow("BIC:", firmaBIC, False)
             If Not String.IsNullOrEmpty(firmaBank) Then drawInfoRow("Bank:", firmaBank, False)
+
+            ' Kunden-E-Mail nur anzeigen, wenn eine gültige Adresse hinterlegt ist - mit einer
+            ' Leerzeile von den eigenen (Rechnungs-)Daten abgesetzt, damit klar ist, dass es sich
+            ' um den Versandweg an den Kunden handelt, nicht um eine weitere eigene Angabe.
+            Dim emailRegex As New System.Text.RegularExpressions.Regex("^[^@\s]+@[^@\s]+\.[^@\s]+$")
+            If Not String.IsNullOrEmpty(kundenEmail) AndAlso emailRegex.IsMatch(kundenEmail) Then
+                iY += rowHInfo
+                drawInfoRow("Versand an E-Mail:", kundenEmail, False)
+            End If
 
             Dim fensterLeft As Double = 56
             Dim absenderY As Double = 135
