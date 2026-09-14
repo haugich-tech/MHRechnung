@@ -27,7 +27,11 @@ Public Class DatenbankManager
         End If
 
         ' 2. Verbindung öffnen und Tabellen IMMER prüfen/erstellen
-        Using conn As New SQLiteConnection(ConnectionString)
+        ' parseViaFramework:=True - wichtig bei Netzwerkpfaden (\\Server\Freigabe\...):
+        ' Ohne diesen Parameter parst SQLite den Pfad selbst und verschluckt sich an
+        ' UNC-Pfaden ("unable to open database file"). Mit True übernimmt .NET die
+        ' Pfadauflösung, die UNC-Pfade korrekt versteht.
+        Using conn As New SQLiteConnection(ConnectionString, True)
             conn.Open()
             Dim sqlCmd As New SQLiteCommand(conn)
 
@@ -112,7 +116,8 @@ Public Class DatenbankManager
     End Sub
 
     Public Shared Function HoleVerbindung() As SQLiteConnection
-        Dim conn As New SQLiteConnection(ConnectionString)
+        ' parseViaFramework:=True - siehe Kommentar in InitialisiereDatenbank (UNC-Pfade).
+        Dim conn As New SQLiteConnection(ConnectionString, True)
         conn.Open()
         Return conn
     End Function
