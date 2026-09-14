@@ -2,17 +2,32 @@ Imports System.Data.SQLite
 Imports System.IO
 
 Public Class DatenbankManager
-    Private Const dbName As String = "MHRechnung_Daten.sqlite"
-    Private Const connectionString As String = "Data Source=" & dbName & ";Version=3;"
+    ' Absoluter Pfad zur .sqlite-Datei. Wird beim Programmstart von Form1 gesetzt
+    ' (siehe DbKonfiguration) - der Speicherort ist frei wählbar, deshalb kein Const mehr.
+    Public Shared Property DatenbankPfad As String = ""
+
+    Private Shared ReadOnly Property ConnectionString As String
+        Get
+            Return "Data Source=" & DatenbankPfad & ";Version=3;"
+        End Get
+    End Property
 
     Public Shared Sub InitialisiereDatenbank()
-        ' 1. Datei erstellen, falls sie komplett fehlt
-        If Not File.Exists(dbName) Then
-            SQLiteConnection.CreateFile(dbName)
+        If String.IsNullOrWhiteSpace(DatenbankPfad) Then
+            Throw New Exception("Kein Datenbank-Pfad gesetzt (DatenbankManager.DatenbankPfad ist leer).")
+        End If
+
+        ' 1. Ordner und Datei erstellen, falls sie komplett fehlen
+        Dim ordner As String = Path.GetDirectoryName(DatenbankPfad)
+        If Not String.IsNullOrWhiteSpace(ordner) AndAlso Not Directory.Exists(ordner) Then
+            Directory.CreateDirectory(ordner)
+        End If
+        If Not File.Exists(DatenbankPfad) Then
+            SQLiteConnection.CreateFile(DatenbankPfad)
         End If
 
         ' 2. Verbindung öffnen und Tabellen IMMER prüfen/erstellen
-        Using conn As New SQLiteConnection(connectionString)
+        Using conn As New SQLiteConnection(ConnectionString)
             conn.Open()
             Dim sqlCmd As New SQLiteCommand(conn)
 
@@ -97,7 +112,7 @@ Public Class DatenbankManager
     End Sub
 
     Public Shared Function HoleVerbindung() As SQLiteConnection
-        Dim conn As New SQLiteConnection(connectionString)
+        Dim conn As New SQLiteConnection(ConnectionString)
         conn.Open()
         Return conn
     End Function

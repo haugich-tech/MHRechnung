@@ -115,6 +115,7 @@ Public Class Form1
     Private txtE_SmtpPass As New TextBox() With {.PasswordChar = "*"c}
 
     Private txtE_Speicherpfad As New TextBox()
+    Private txtE_DbPfad As New TextBox() With {.ReadOnly = True}
 
     ' --- Elemente für Tab 6 (Archiv) ---
     Private dgvArchiv As New DataGridView()
@@ -158,6 +159,111 @@ Public Class Form1
     ' Muss VOR dem Aufbau der Tabs laufen, damit die MwSt-Dropdowns die richtigen
     ' Werte bekommen. Fehlt ein Eintrag in der DB (frisches System), bleibt der
     ' Compile-Zeit-Standardwert oben stehen.
+    ' =========================================================================
+    ' DATENBANK-PFAD (muss vor jedem DB-Zugriff feststehen - siehe DbKonfiguration.vb)
+    ' =========================================================================
+    Private Sub LegeDatenbankPfadFest()
+        Dim pfad As String = DbKonfiguration.LiesDatenbankPfad()
+        Dim pfadGueltig As Boolean = Not String.IsNullOrWhiteSpace(pfad) AndAlso Directory.Exists(Path.GetDirectoryName(pfad))
+
+        If Not pfadGueltig Then
+            ' Falls direkt neben der .exe schon eine Datenbank liegt (z.B. von einer
+            ' Installation ohne diese Pfad-Datei), die einfach automatisch übernehmen,
+            ' statt gleich einen Dialog aufzuzwingen.
+            Dim standardPfad As String = Path.Combine(Application.StartupPath, "MHRechnung_Daten.sqlite")
+            If File.Exists(standardPfad) Then
+                pfad = standardPfad
+                pfadGueltig = True
+            End If
+        End If
+
+        If Not pfadGueltig Then
+            pfad = ZeigeDatenbankWahlDialog(erzwingeWahl:=True)
+        End If
+
+        DbKonfiguration.SchreibeDatenbankPfad(pfad)
+        DatenbankManager.DatenbankPfad = pfad
+    End Sub
+
+    ''' <summary>Zeigt den Datenbank-Auswahl-Dialog. Bei erzwingeWahl:=True kann das
+    ''' Fenster nicht weggeklickt werden (das Programm braucht zwingend eine Datenbank);
+    ''' bei False gibt es einen Abbrechen-Button und die Funktion kann "" zurückgeben.</summary>
+    Private Function ZeigeDatenbankWahlDialog(erzwingeWahl As Boolean) As String
+        Dim gewaehlterPfad As String = ""
+
+        Dim dlg As New Form With {
+            .Text = "Datenbank auswählen",
+            .Size = New Size(500, 230),
+            .StartPosition = FormStartPosition.CenterScreen,
+            .FormBorderStyle = FormBorderStyle.FixedDialog,
+            .MaximizeBox = False, .MinimizeBox = False,
+            .ControlBox = Not erzwingeWahl,
+            .BackColor = CLR_HINTERGRUND
+        }
+
+        Dim lbl As New Label With {
+            .Text = If(erzwingeWahl,
+                "Es wurde noch keine Datenbank-Datei gefunden." & vbCrLf & vbCrLf &
+                "Bitte wähle eine vorhandene Datenbank aus oder lege eine neue an.",
+                "Wähle eine vorhandene Datenbank aus oder lege eine neue an."),
+            .Location = New Point(20, 20), .Size = New Size(450, 70),
+            .Font = FONT_NORMAL, .ForeColor = CLR_TEXT_DUNKEL
+        }
+
+        Dim btnVorhanden = MachePrimaerButton("Vorhandene öffnen…", 210, 44)
+        btnVorhanden.Location = New Point(20, 105)
+        Dim btnNeu = MacheSekundaerButton("Neue anlegen…", 210, 44)
+        btnNeu.Location = New Point(250, 105)
+
+        AddHandler btnVorhanden.Click, Sub()
+                                            Dim ofd As New OpenFileDialog With {
+                                                .Filter = "SQLite-Datenbank (*.sqlite)|*.sqlite|Alle Dateien (*.*)|*.*",
+                                                .Title = "Vorhandene Datenbank auswählen"
+                                            }
+                                            If ofd.ShowDialog() = DialogResult.OK Then
+                                                gewaehlterPfad = ofd.FileName
+                                                dlg.DialogResult = DialogResult.OK
+                                                dlg.Close()
+                                            End If
+                                        End Sub
+
+        AddHandler btnNeu.Click, Sub()
+                                      Dim sfd As New SaveFileDialog With {
+                                          .Filter = "SQLite-Datenbank (*.sqlite)|*.sqlite",
+                                          .Title = "Neue Datenbank anlegen",
+                                          .FileName = "MHRechnung_Daten.sqlite"
+                                      }
+                                      If sfd.ShowDialog() = DialogResult.OK Then
+                                          gewaehlterPfad = sfd.FileName
+                                          dlg.DialogResult = DialogResult.OK
+                                          dlg.Close()
+                                      End If
+                                  End Sub
+
+        dlg.Controls.AddRange({lbl, btnVorhanden, btnNeu})
+
+        If Not erzwingeWahl Then
+            Dim btnAbbrechen As New Button With {
+                .Text = "Abbrechen", .Location = New Point(20, 160), .Size = New Size(100, 32),
+                .DialogResult = DialogResult.Cancel, .Font = FONT_NORMAL
+            }
+            dlg.Controls.Add(btnAbbrechen)
+            dlg.CancelButton = btnAbbrechen
+        End If
+
+        Dim result = dlg.ShowDialog()
+
+        If result = DialogResult.OK Then
+            Return gewaehlterPfad
+        ElseIf erzwingeWahl Then
+            MessageBox.Show("Ohne ausgewählte Datenbank kann MHRechnung nicht gestartet werden. Das Programm wird beendet.", "Abgebrochen", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Application.Exit()
+            Return ""
+        Else
+            Return ""
+        End If
+    End Function
+
     Private Sub LadeMwstSaetzeFrueh()
         Using conn = DatenbankManager.HoleVerbindung()
             Dim cmd As New SQLiteCommand("SELECT wert FROM einstellungen WHERE schluessel = 'mwst_satz_1'", conn)
@@ -196,6 +302,9 @@ Public Class Form1
         Me.StartPosition = FormStartPosition.CenterScreen
         Me.Font = FONT_NORMAL
         Me.BackColor = CLR_HINTERGRUND
+
+        ' Datenbank-Pfad ermitteln, BEVOR irgendetwas auf die DB zugreift.
+        LegeDatenbankPfadFest()
 
         ' DB muss vor dem Aufbau der Tabs bereitstehen, da die MwSt-Dropdowns
         ' schon beim Bauen die konfigurierten Sätze brauchen.
@@ -1783,6 +1892,17 @@ Public Class Form1
         cmd.ExecuteNonQuery()
     End Sub
 
+    Private Sub BtnDbPfadAendern_Click(sender As Object, e As EventArgs)
+        Dim neuerPfad As String = ZeigeDatenbankWahlDialog(erzwingeWahl:=False)
+        If String.IsNullOrWhiteSpace(neuerPfad) Then Return
+
+        DbKonfiguration.SchreibeDatenbankPfad(neuerPfad)
+        txtE_DbPfad.Text = neuerPfad
+        MessageBox.Show("Datenbank-Pfad geändert." & vbCrLf & vbCrLf &
+                        "Bitte starte MHRechnung neu, damit die Änderung wirkt.",
+                        "Neustart nötig", MessageBoxButtons.OK, MessageBoxIcon.Information)
+    End Sub
+
     Private Sub BtnSpeichern_Einstellungen_Click(sender As Object, e As EventArgs)
         Try
             Using conn = DatenbankManager.HoleVerbindung()
@@ -2682,20 +2802,30 @@ Public Class Form1
         ' Keine eigene Fußzeilen-Konfiguration mehr nötig: als Einzelunternehmer ohne
         ' Geschäftsführer und mit Bürositz = Firmensitz zieht die Rechnung ihre schlanke
         ' Kontakt-Fußzeile automatisch aus dem Firmenprofil oben (Abschnitt 2).
-        ' Höhe 105 wie die anderen Ein-Zeilen-Gruppen (z.B. "5. SMTP") - 65 war zu knapp
-        ' bemessen und hat das Eingabefeld am unteren Rand abgeschnitten.
-        Dim gbSystem As New GroupBox With {.Text = "6. Speicherort", .Location = New Point(20, 875), .Size = New Size(1050, 105)}
+        ' Höhe 170 für zwei Zeilen (wie ursprünglich) - 65/105 waren zu knapp bemessen.
+        Dim gbSystem As New GroupBox With {.Text = "6. Speicherort", .Location = New Point(20, 875), .Size = New Size(1050, 170)}
         StyleGroupBox(gbSystem)
         ErstelleFeld(gbSystem, "Haupt-Speicherpfad", txtE_Speicherpfad, 20, 28, 310)
 
+        ' Datenbank-Datei: NICHT in den Einstellungen selbst gespeichert (Henne-Ei-Problem -
+        ' man müsste die DB erst öffnen, um den Pfad zu kennen), sondern in db-pfad.json
+        ' neben der .exe. Hier nur Anzeige + Möglichkeit, sie zu wechseln.
+        ErstelleFeld(gbSystem, "Datenbank-Datei", txtE_DbPfad, 20, 90, 780)
+        txtE_DbPfad.BackColor = Color.FromArgb(240, 240, 240)
+        txtE_DbPfad.Text = DatenbankManager.DatenbankPfad
+        Dim btnDbAendern = MacheSekundaerButton("Ändern…", 130, 28)
+        btnDbAendern.Location = New Point(820, 107)
+        AddHandler btnDbAendern.Click, AddressOf BtnDbPfadAendern_Click
+        gbSystem.Controls.Add(btnDbAendern)
+
         ' Speichern-Button
         Dim btnSpeichern = MachePrimaerButton("💾  EINSTELLUNGEN SPEICHERN", 270, 44)
-        btnSpeichern.Location = New Point(20, 1000)
+        btnSpeichern.Location = New Point(20, 1065)
         AddHandler btnSpeichern.Click, AddressOf BtnSpeichern_Einstellungen_Click
 
         ' Gefahrenzone
         Dim pnlGefahr As New Panel With {
-            .Location = New Point(20, 1065),
+            .Location = New Point(20, 1130),
             .Size = New Size(1050, 210),
             .BackColor = Color.FromArgb(255, 248, 248)
         }
@@ -2743,12 +2873,12 @@ Public Class Form1
 
         pnlMain.Controls.AddRange({gbProg, gbFirma, gbBank, gbTexte, gbSmtp, gbSystem, btnSpeichern, pnlGefahr})
 
-        ' Explizite Scroll-Größe: pnlGefahr (unterster Block) reicht bis Y=1275, mit ihrem
-        ' eigenen Rand ("Padding" von pnlMain) macht das rund 1300px Gesamthöhe. Ohne diese
+        ' Explizite Scroll-Größe: pnlGefahr (unterster Block) reicht bis Y=1340, mit ihrem
+        ' eigenen Rand ("Padding" von pnlMain) macht das rund 1370px Gesamthöhe. Ohne diese
         ' Angabe berechnet WinForms die AutoScroll-Größe bei absolut positionierten Controls
         ' nicht zuverlässig, wodurch die Gefahrenzone unten aus dem sichtbaren Tab herausragt,
         ' statt dass sich ein Scrollbalken zeigt.
-        pnlMain.AutoScrollMinSize = New Size(1100, 1300)
+        pnlMain.AutoScrollMinSize = New Size(1100, 1370)
 
         TabEinstellungen.Controls.Add(pnlMain)
     End Sub
@@ -3117,7 +3247,9 @@ Public Class Form1
 
             If manuell Then Me.Cursor = Cursors.WaitCursor
 
-            Dim dbPfad As String = Path.Combine(Application.StartupPath, "MHRechnung_Daten.sqlite")
+            ' Datenbank kann seit der frei wählbaren Speicherort-Funktion überall liegen -
+            ' nicht mehr fest neben der .exe annehmen, sondern den tatsächlichen Pfad nehmen.
+            Dim dbPfad As String = DatenbankManager.DatenbankPfad
             Dim tempPfad As String = Path.Combine(Path.GetTempPath(), $"Sicherung_MHRechnung_Daten_{DateTime.Now:yyyyMMdd_HHmmss}.sqlite")
             File.Copy(dbPfad, tempPfad, True)
 

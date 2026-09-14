@@ -184,6 +184,7 @@
     <Compile Include="ERechnungsImporter.vb" />
     <Compile Include="LegFontResolver.vb" />
     <Compile Include="DatenbankManager.vb" />
+    <Compile Include="DbKonfiguration.vb" />
     <Compile Include="Form1.vb">
       <SubType>Form</SubType>
     </Compile>
