@@ -6,7 +6,7 @@ Public Class MustangRunner
 
     ' Hilfsfunktion: Holt den Speicherpfad aus der Datenbank
     Private Shared Function HoleSpeicherpfad() As String
-        Dim pfad As String = "C:\LEG_Rechnungen"
+        Dim pfad As String = "C:\MHRechnung"
         Try
             Using conn = DatenbankManager.HoleVerbindung()
                 Dim cmd As New SQLiteCommand("SELECT wert FROM einstellungen WHERE schluessel = 'speicherpfad'", conn)

@@ -11,7 +11,7 @@ Public Class ERechnungsImporter
     Public Class ImportedPosition
         Public Property Bezeichnung As String = ""
         Public Property EinzelpreisNetto As Decimal = 0
-        Public Property MwStSatz As Integer = 19
+        Public Property MwStSatz As Decimal = 19D
     End Class
 
     Public Class ImportedInvoice
@@ -136,7 +136,7 @@ Public Class ERechnungsImporter
                 If Not String.IsNullOrEmpty(mwstStr) Then
                     Dim mwstDecimal As Decimal = 19
                     Decimal.TryParse(mwstStr.Replace(".", ","), mwstDecimal)
-                    pos.MwStSatz = CInt(mwstDecimal)
+                    pos.MwStSatz = mwstDecimal
                 End If
 
                 result.Positionen.Add(pos)

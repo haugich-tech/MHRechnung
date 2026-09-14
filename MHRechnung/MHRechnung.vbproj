@@ -208,7 +208,6 @@
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
     <Compile Include="RechnungsDrucker.vb" />
-    <Compile Include="SepaGenerator.vb" />
     <Compile Include="ToolPfade.vb" />
     <Compile Include="ZugferdGenerator.vb" />
   </ItemGroup>

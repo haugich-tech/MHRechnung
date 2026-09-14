@@ -35,8 +35,8 @@ Public Class EmailManager
         Dim smtpPass = GetSetting(s, "smtp_pass", "")
 
         Dim kontaktMail = GetSetting(s, "firma_email", "")
-        Dim firmenName = GetSetting(s, "firma_name", "LEG Wertachtal GBR")
-        Dim baseDir = GetSetting(s, "speicherpfad", "C:\LEG_Rechnungen")
+        Dim firmenName = GetSetting(s, "firma_name", "")
+        Dim baseDir = GetSetting(s, "speicherpfad", "C:\MHRechnung")
 
         If String.IsNullOrWhiteSpace(smtpServer) OrElse String.IsNullOrWhiteSpace(smtpUser) OrElse String.IsNullOrWhiteSpace(smtpPass) Then
             Throw New Exception("Die E-Mail-Server-Daten (SMTP) sind nicht vollständig im Tab 'Einstellungen' hinterlegt.")
@@ -66,7 +66,7 @@ Public Class EmailManager
 
         If hatLogo Then
             ' Das 'cid:' sagt dem E-Mail-Programm, dass das Bild im Text eingebettet ist
-            htmlBody &= "<img src='cid:FirmenLogo' alt='LEG Wertachtal Logo' style='max-width: 250px;'><br>"
+            htmlBody &= "<img src='cid:FirmenLogo' alt='Firmenlogo' style='max-width: 250px;'><br>"
         End If
 
         htmlBody &= "</div>"

@@ -90,25 +90,26 @@ Public Class RechnungsDrucker
         ' ── 0. Einstellungen ──────────────────────────────────────────────────
         Dim s As Dictionary(Of String, String) = LadeEinstellungen()
 
-        Dim speicherPfad As String = GetSetting(s, "speicherpfad", "C:\LEG_Rechnungen")
-        Dim firmaName As String = GetSetting(s, "firma_name", "LEG Wertachtal GBR")
-        Dim firmaStrasse As String = GetSetting(s, "firma_strasse", "Augsburger Str. 40")
-        Dim firmaPLZ As String = GetSetting(s, "firma_plz", "86842")
-        Dim firmaOrt As String = GetSetting(s, "firma_ort", "Türkheim")
+        Dim speicherPfad As String = GetSetting(s, "speicherpfad", "C:\MHRechnung")
+        Dim firmaName As String = GetSetting(s, "firma_name", "")
+        Dim firmaStrasse As String = GetSetting(s, "firma_strasse", "")
+        Dim firmaPLZ As String = GetSetting(s, "firma_plz", "")
+        Dim firmaOrt As String = GetSetting(s, "firma_ort", "")
         Dim firmaEmail As String = GetSetting(s, "firma_email", "")
         Dim firmaTel As String = GetSetting(s, "firma_tel", "")
         Dim firmaSteuer As String = GetSetting(s, "firma_steuer", "")
         Dim firmaIBAN As String = GetSetting(s, "firma_iban", "")
         Dim firmaBIC As String = GetSetting(s, "firma_bic", "")
         Dim firmaBank As String = GetSetting(s, "firma_bank", "")
-        Dim firmaGlaeubiger As String = GetSetting(s, "firma_glaeubiger", "")
+        ' Die MwSt-Sätze selbst müssen hier nicht geladen werden - jede Position trägt
+        ' ihren eigenen Satz bereits aus der Datenbank (rechnungspositionen.mwst_satz).
 
         Dim textZahlung As String = GetSetting(s, "text_zahlung", "")
         Dim textGutschrift As String = GetSetting(s, "text_gutschrift", "")
 
         Dim fussGsstName As String = GetSetting(s, "fuss_gst_name", "Büro")
         Dim fussSitz As String = GetSetting(s, "fuss_sitz", "Sitz der Gesellschaft " & firmaOrt)
-        Dim fussGericht As String = GetSetting(s, "fuss_gericht", "Gerichtsstand Memmingen")
+        Dim fussGericht As String = GetSetting(s, "fuss_gericht", "")
         Dim fussGF1 As String = GetSetting(s, "fuss_gf1_name", "")
         Dim fussGF1Tel As String = GetSetting(s, "fuss_gf1_tel", "")
         Dim fussGF2 As String = GetSetting(s, "fuss_gf2_name", "")
@@ -125,61 +126,64 @@ Public Class RechnungsDrucker
         Dim kundenStrasse As String = ""
         Dim kundenPLZ As String = ""
         Dim kundenOrt As String = ""
-        Dim kundenIBAN As String = ""
-        Dim kundenMandat As String = ""
         Dim kundenSteuer As String = ""
         Dim kundenBetrieb As String = ""
-        Dim positionen As New List(Of (bez As String, anz As Decimal, prs As Decimal, mwst As Integer))
+        Dim rechnungsdatum As String = ""
+        Dim lieferdatum As String = ""
+        Dim positionen As New List(Of (bez As String, anz As Decimal, prs As Decimal, mwst As Decimal))
 
         Using conn = DatenbankManager.HoleVerbindung()
-            Dim sqlK = "SELECT m.name, m.strasse, m.plz, m.ort, m.iban, m.mitgliedsnummer, m.steuernummer, m.betriebsnummer " &
+            Dim sqlK = "SELECT r.datum, r.lieferdatum, m.name, m.strasse, m.plz, m.ort, m.steuernummer, m.betriebsnummer " &
                        "FROM rechnungen r JOIN mitglieder m ON r.mitglied_id = m.id WHERE r.id = @id"
             Dim cmdK As New SQLiteCommand(sqlK, conn)
             cmdK.Parameters.AddWithValue("@id", reID)
             Using r = cmdK.ExecuteReader()
                 If r.Read() Then
+                    rechnungsdatum = r("datum").ToString()
+                    lieferdatum = r("lieferdatum").ToString()
                     kundenName = r("name").ToString()
                     kundenStrasse = r("strasse").ToString()
                     kundenPLZ = r("plz").ToString()
                     kundenOrt = r("ort").ToString()
-                    kundenIBAN = r("iban").ToString()
-                    kundenMandat = r("mitgliedsnummer").ToString()
                     kundenSteuer = r("steuernummer").ToString()
                     kundenBetrieb = r("betriebsnummer").ToString()
                 End If
             End Using
+            If String.IsNullOrWhiteSpace(rechnungsdatum) Then rechnungsdatum = DateTime.Now.ToString("dd.MM.yyyy")
+            If String.IsNullOrWhiteSpace(lieferdatum) Then lieferdatum = rechnungsdatum
 
             Dim cmdP As New SQLiteCommand("SELECT artikel_bezeichnung, anzahl, einzelpreis, mwst_satz FROM rechnungspositionen WHERE rechnung_id = @id", conn)
             cmdP.Parameters.AddWithValue("@id", reID)
             Using r = cmdP.ExecuteReader()
                 While r.Read()
-                    positionen.Add((r("artikel_bezeichnung").ToString(), CDec(r("anzahl")), CDec(r("einzelpreis")), CInt(r("mwst_satz"))))
+                    positionen.Add((r("artikel_bezeichnung").ToString(), CDec(r("anzahl")), CDec(r("einzelpreis")), CDec(r("mwst_satz"))))
                 End While
             End Using
         End Using
 
-        Dim nettoGesamt As Decimal = 0, nettoBasis7 As Decimal = 0, nettoBasis19 As Decimal = 0
-        Dim mwst7 As Decimal = 0, mwst19 As Decimal = 0
+        Dim nettoGesamt As Decimal = 0
+        Dim nettoBasisProSatz As New Dictionary(Of Decimal, Decimal)
 
         For Each pos In positionen
             ' Zeilennetto auf 2 Stellen runden - identische Logik wie im ZUGFeRD-XML
             Dim zn As Decimal = Math.Round(pos.anz * pos.prs, 2, MidpointRounding.AwayFromZero)
             nettoGesamt += zn
-            If pos.mwst = 7 Then
-                nettoBasis7 += zn
-            ElseIf pos.mwst = 19 Then
-                nettoBasis19 += zn
-            End If
-            ' Andere Sätze (z.B. 0% steuerfrei) bekommen keine MwSt aufgeschlagen
+            If Not nettoBasisProSatz.ContainsKey(pos.mwst) Then nettoBasisProSatz(pos.mwst) = 0
+            nettoBasisProSatz(pos.mwst) += zn
         Next
-        ' Steuer auf die gerundete Basis berechnen - PDF stimmt damit exakt mit XML und SEPA überein
-        mwst7 = Math.Round(nettoBasis7 * 0.07D, 2, MidpointRounding.AwayFromZero)
-        mwst19 = Math.Round(nettoBasis19 * 0.19D, 2, MidpointRounding.AwayFromZero)
-        Dim bruttoGesamt As Decimal = nettoGesamt + mwst7 + mwst19
+        ' Steuer auf die gerundete Basis berechnen - PDF stimmt damit exakt mit XML überein
+        Dim mwstBetragProSatz As New Dictionary(Of Decimal, Decimal)
+        Dim mwstGesamt As Decimal = 0
+        For Each kv In nettoBasisProSatz
+            Dim betrag As Decimal = Math.Round(kv.Value * (kv.Key / 100D), 2, MidpointRounding.AwayFromZero)
+            mwstBetragProSatz(kv.Key) = betrag
+            mwstGesamt += betrag
+        Next
+        Dim bruttoGesamt As Decimal = nettoGesamt + mwstGesamt
 
-        ' --- NEUE GUTSCHRIFTEN LOGIK ---
+        ' --- GUTSCHRIFTEN-LOGIK ---
         Dim titelText As String = "RECHNUNG"
-        Dim summenLabel As String = "Abbuchungsbetrag"
+        Dim summenLabel As String = "Rechnungsbetrag"
         Dim basisText As String = textZahlung
 
         If bruttoGesamt < 0 Then
@@ -189,14 +193,10 @@ Public Class RechnungsDrucker
         ElseIf bruttoGesamt = 0 Then
             titelText = "RECHNUNG"
             summenLabel = "Rechnungsbetrag"
-            basisText = "Der Rechnungsbetrag beläuft sich auf 0,00 €. Diese Rechnung dient lediglich zur Information/Korrektur, es ist keine Zahlung oder Abbuchung erforderlich."
+            basisText = "Der Rechnungsbetrag beläuft sich auf 0,00 €. Diese Rechnung dient lediglich zur Information/Korrektur, es ist keine Zahlung erforderlich."
         End If
 
-        Dim sepaText As String = basisText _
-            .Replace("[RE-nummer]", "re-" & reNr) _
-            .Replace("[Kunden-IBAN]", If(kundenIBAN = "", "—", kundenIBAN)) _
-            .Replace("[Kunden-Mandat]", If(kundenMandat = "", "—", kundenMandat)) _
-            .Replace("[Gläubiger-ID]", If(firmaGlaeubiger = "", "—", firmaGlaeubiger))
+        Dim zahlungsText As String = basisText.Replace("[RE-nummer]", "re-" & reNr)
 
         ' ── 3. PDF ZEICHNEN (MULTI-PAGE LOGIK) ────────────────────────────────
         Using document As New PdfDocument()
@@ -277,7 +277,14 @@ Public Class RechnungsDrucker
                                       Return hdrLineY + 15
                                   End Function
 
+            ' Kornfeld-Akzentlinie oben auf jeder Seite
+            Dim bKornblumenblau As XBrush = New XSolidBrush(XColor.FromArgb(61, 90, 128))
+            Dim drawAkzentlinie = Sub(g As XGraphics)
+                                       g.DrawRectangle(bKornblumenblau, 0, 0, p1.Width.Point, 5)
+                                   End Sub
+
             Dim drawPage2Header = Sub(g As XGraphics)
+                                      drawAkzentlinie(g)
                                       If File.Exists(logoPfad) Then
                                           Try
                                               Dim logoImg As XImage = XImage.FromFile(logoPfad)
@@ -304,13 +311,14 @@ Public Class RechnungsDrucker
                                                   End Sub
 
                                       drawC("Rechnungsnr.: " & reNr, fNorm, 30)
-                                      drawC("Rechnungsdatum: " & DateTime.Now.ToString("dd.MM.yyyy"), fNorm, 42)
+                                      drawC("Rechnungsdatum: " & rechnungsdatum, fNorm, 42)
                                       drawC("Empfänger: " & kundenName, fBold, 54)
                                   End Sub
 
             ' --- SEITE 1 AUFBAU ---
             Dim currentGfx As XGraphics = XGraphics.FromPdfPage(p1)
             gfxList.Add(currentGfx)
+            drawAkzentlinie(currentGfx)
 
             Dim logoX As Double = mL
             Dim logoY As Double = 22
@@ -326,18 +334,14 @@ Public Class RechnungsDrucker
                 Catch
                 End Try
             Else
-                Dim darkGreen As XColor = XColor.FromArgb(30, 110, 30)
-                Dim bGreen As XBrush = New XSolidBrush(darkGreen)
-                Dim fLEGBig As New XFont("Arial", 13, XFontStyleEx.Bold)
-                Dim fLEGSub As New XFont("Arial", 7, XFontStyleEx.Regular)
-                Dim fWert As New XFont("Arial", 22, XFontStyleEx.Bold)
-                currentGfx.DrawString("L", fLEGBig, bGreen, logoX, logoY)
-                currentGfx.DrawString("andwirtschaftliche", fLEGSub, bBlack, logoX + 14, logoY - 2)
-                currentGfx.DrawString("E", fLEGBig, bGreen, logoX, logoY + 14)
-                currentGfx.DrawString("inkaufs", fLEGSub, bBlack, logoX + 14, logoY + 12)
-                currentGfx.DrawString("G", fLEGBig, bGreen, logoX, logoY + 28)
-                currentGfx.DrawString("emeinschaft", fLEGSub, bBlack, logoX + 14, logoY + 26)
-                currentGfx.DrawString("Wertachtal", fWert, bGreen, logoX - 2, logoY + 52)
+                Dim kornblumenblau As XColor = XColor.FromArgb(61, 90, 128)
+                Dim bBlau As XBrush = New XSolidBrush(kornblumenblau)
+                Dim fMonogramm As New XFont("Arial", 30, XFontStyleEx.Bold)
+                Dim fFirmaGross As New XFont("Arial", 14, XFontStyleEx.Bold)
+                currentGfx.DrawString("MH", fMonogramm, bBlau, logoX, logoY)
+                If Not String.IsNullOrWhiteSpace(firmaName) Then
+                    currentGfx.DrawString(firmaName, fFirmaGross, bBlack, logoX, logoY + 46)
+                End If
             End If
 
             Dim infoX As Double = 340
@@ -360,14 +364,17 @@ Public Class RechnungsDrucker
                                   iY += rowHInfo
                               End Sub
 
-            drawInfoRow("Rechnungsdatum:", DateTime.Now.ToString("dd.MM.yyyy"), True)
+            drawInfoRow("Rechnungsdatum:", rechnungsdatum, True)
+            ' Lieferdatum ist eine Pflichtangabe nach §14 Abs. 4 Nr. 6 UStG, sofern es vom
+            ' Rechnungsdatum abweicht - deshalb immer separat ausgewiesen.
+            drawInfoRow("Lieferdatum:", lieferdatum, True)
             drawInfoRow("Rechnungsnr.:", reNr, True)
             If Not String.IsNullOrEmpty(kundenSteuer) Then drawInfoRow("Kd.-Steuernr.:", kundenSteuer, False)
             If Not String.IsNullOrEmpty(kundenBetrieb) Then drawInfoRow("Kd.-Betriebsnr.:", kundenBetrieb, False)
-            drawInfoRow("LEG-Steuernr.:", firmaSteuer, False)
-            drawInfoRow("LEG-Email:", firmaEmail, False)
-            drawInfoRow("IBAN:", firmaIBAN, True)
-            drawInfoRow("BIC:", firmaBIC, False)
+            If Not String.IsNullOrEmpty(firmaSteuer) Then drawInfoRow("Steuernr.:", firmaSteuer, False)
+            If Not String.IsNullOrEmpty(firmaEmail) Then drawInfoRow("E-Mail:", firmaEmail, False)
+            If Not String.IsNullOrEmpty(firmaIBAN) Then drawInfoRow("IBAN:", firmaIBAN, True)
+            If Not String.IsNullOrEmpty(firmaBIC) Then drawInfoRow("BIC:", firmaBIC, False)
             If Not String.IsNullOrEmpty(firmaBank) Then drawInfoRow("Bank:", firmaBank, False)
 
             Dim fensterLeft As Double = 56
@@ -420,7 +427,7 @@ Public Class RechnungsDrucker
                 If pos.anz <> 0 AndAlso pos.prs <> 0 Then
                     DrawRight(currentGfx, pos.anz.ToString("N0"), fNorm, bBlack, cAnz + 20, rowY)
                     DrawRight(currentGfx, pos.prs.ToString("N2") & " €", fNorm, bBlack, cPre + 20, rowY)
-                    DrawRight(currentGfx, pos.mwst.ToString() & "%", fNorm, bBlack, cMwSt + 15, rowY)
+                    DrawRight(currentGfx, FormatMwSt(pos.mwst), fNorm, bBlack, cMwSt + 15, rowY)
                     DrawRight(currentGfx, zeileNetto.ToString("N2") & " €", fNorm, bBlack, mR - 2, rowY)
                 End If
 
@@ -471,21 +478,17 @@ Public Class RechnungsDrucker
 
             Dim sMwstLblX As Double = sLblX + 50
 
-            ' --- KORREKTUR: STEUERN WERDEN IMMER ANGEZEIGT WENN UNGLEICH 0 ---
-            If mwst7 <> 0 Then
-                currentGfx.DrawString("7% MwSt auf", fSmall, bBlack, sMwstLblX, sY)
-                DrawRight(currentGfx, nettoBasis7.ToString("N2") & " €", fSmall, bBlack, sEqX - 5, sY)
-                currentGfx.DrawString("=", fSmall, bBlack, sEqX, sY)
-                DrawRight(currentGfx, mwst7.ToString("N2") & " €", fSmall, bBlack, sGesX, sY)
-                sY += 13
-            End If
-            If mwst19 <> 0 Then
-                currentGfx.DrawString("19% MwSt auf", fSmall, bBlack, sMwstLblX, sY)
-                DrawRight(currentGfx, nettoBasis19.ToString("N2") & " €", fSmall, bBlack, sEqX - 5, sY)
-                currentGfx.DrawString("=", fSmall, bBlack, sEqX, sY)
-                DrawRight(currentGfx, mwst19.ToString("N2") & " €", fSmall, bBlack, sGesX, sY)
-                sY += 13
-            End If
+            ' Steuern werden für jeden tatsächlich vorkommenden Satz angezeigt (nicht nur 7,8%/5,5%,
+            ' falls z.B. eine ältere Rechnung noch einen anderen Satz enthält)
+            For Each kv In nettoBasisProSatz.OrderByDescending(Function(x) x.Key)
+                If kv.Value <> 0 Then
+                    currentGfx.DrawString(FormatMwSt(kv.Key) & " MwSt auf", fSmall, bBlack, sMwstLblX, sY)
+                    DrawRight(currentGfx, kv.Value.ToString("N2") & " €", fSmall, bBlack, sEqX - 5, sY)
+                    currentGfx.DrawString("=", fSmall, bBlack, sEqX, sY)
+                    DrawRight(currentGfx, mwstBetragProSatz(kv.Key).ToString("N2") & " €", fSmall, bBlack, sGesX, sY)
+                    sY += 13
+                End If
+            Next
 
             currentGfx.DrawLine(penBlack, sLblX, sY - 2, mR, sY - 2)
             sY += 8
@@ -500,25 +503,25 @@ Public Class RechnungsDrucker
             DrawRight(currentGfx, bruttoGesamt.ToString("N2") & " €", fBold, bBlack, sGesX, sY)
             sY += 25
 
-            ' --- SEPA-TEXT / GUTSCHRIFTS-TEXT ---
-            If Not String.IsNullOrWhiteSpace(sepaText) Then
+            ' --- ZAHLUNGS-/ GUTSCHRIFTS-TEXT ---
+            If Not String.IsNullOrWhiteSpace(zahlungsText) Then
                 Dim fSepa As New XFont("Arial", 8, XFontStyleEx.Bold)
-                Dim words As String() = sepaText.Split(" "c)
+                Dim words As String() = zahlungsText.Split(" "c)
                 Dim currentLine As String = ""
-                Dim sepaLines As New List(Of String)
+                Dim textZeilen As New List(Of String)
 
                 For Each word As String In words
                     Dim testLine As String = If(currentLine = "", word, currentLine & " " & word)
                     If currentGfx.MeasureString(testLine, fSepa).Width > cW Then
-                        sepaLines.Add(currentLine)
+                        textZeilen.Add(currentLine)
                         currentLine = word
                     Else
                         currentLine = testLine
                     End If
                 Next
-                If currentLine <> "" Then sepaLines.Add(currentLine)
+                If currentLine <> "" Then textZeilen.Add(currentLine)
 
-                For Each line As String In sepaLines
+                For Each line As String In textZeilen
                     Dim lw As Double = currentGfx.MeasureString(line, fSepa).Width
                     currentGfx.DrawString(line, fSepa, bBlack, mL + (cW - lw) / 2, sY)
                     sY += 12
@@ -547,4 +550,9 @@ Public Class RechnungsDrucker
             document.Save(dateiName)
         End Using
     End Sub
+
+    ' Formatiert einen MwSt-Satz für die PDF-Anzeige, z.B. 7,8 -> "7,8%"
+    Private Shared Function FormatMwSt(satz As Decimal) As String
+        Return satz.ToString("0.0###", Globalization.CultureInfo.InvariantCulture).Replace(".", ",") & "%"
+    End Function
 End Class
