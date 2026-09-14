@@ -2589,7 +2589,9 @@ Public Class Form1
     Private Sub BaueTabEinstellungen()
         TabEinstellungen.Name = "TabEinstellungen"
         TabEinstellungen.BackColor = CLR_HINTERGRUND
-        TabEinstellungen.AutoScroll = True
+        ' Nur EIN Scroll-Container (pnlMain unten) - ein zusätzliches AutoScroll hier auf der
+        ' TabPage selbst hat zuvor dazu geführt, dass die Größenberechnung durcheinanderkam
+        ' und der unterste Block (Gefahrenzone) aus dem sichtbaren Bereich herausragte.
 
         Dim pnlMain As New Panel With {.Dock = DockStyle.Fill, .Padding = New Padding(20), .AutoScroll = True}
 
@@ -2738,6 +2740,14 @@ Public Class Form1
         pnlGefahr.Controls.AddRange({txtStartReNr, lblHinweis, pnlTrennstrich2, chkSicherLoeschen, btnLoeschen})
 
         pnlMain.Controls.AddRange({gbProg, gbFirma, gbBank, gbTexte, gbSmtp, gbSystem, btnSpeichern, pnlGefahr})
+
+        ' Explizite Scroll-Größe: pnlGefahr (unterster Block) reicht bis Y=1235, mit ihrem
+        ' eigenen Rand ("Padding" von pnlMain) macht das rund 1260px Gesamthöhe. Ohne diese
+        ' Angabe berechnet WinForms die AutoScroll-Größe bei absolut positionierten Controls
+        ' nicht zuverlässig, wodurch die Gefahrenzone unten aus dem sichtbaren Tab herausragt,
+        ' statt dass sich ein Scrollbalken zeigt.
+        pnlMain.AutoScrollMinSize = New Size(1100, 1260)
+
         TabEinstellungen.Controls.Add(pnlMain)
     End Sub
 
