@@ -115,13 +115,6 @@ Public Class Form1
     Private txtE_SmtpPass As New TextBox() With {.PasswordChar = "*"c}
 
     Private txtE_Speicherpfad As New TextBox()
-    Private txtE_FussGstName As New TextBox()
-    Private txtE_FussSitz As New TextBox()
-    Private txtE_FussGericht As New TextBox()
-    Private txtE_FussGF1 As New TextBox()
-    Private txtE_FussGF1Tel As New TextBox()
-    Private txtE_FussGF2 As New TextBox()
-    Private txtE_FussGF2Tel As New TextBox()
 
     ' --- Elemente für Tab 6 (Archiv) ---
     Private dgvArchiv As New DataGridView()
@@ -1768,13 +1761,6 @@ Public Class Form1
                         Case "smtp_user" : txtE_SmtpUser.Text = val
                         Case "smtp_pass" : txtE_SmtpPass.Text = val
                         Case "speicherpfad" : txtE_Speicherpfad.Text = val
-                        Case "fuss_gst_name" : txtE_FussGstName.Text = val
-                        Case "fuss_sitz" : txtE_FussSitz.Text = val
-                        Case "fuss_gericht" : txtE_FussGericht.Text = val
-                        Case "fuss_gf1_name" : txtE_FussGF1.Text = val
-                        Case "fuss_gf2_name" : txtE_FussGF2.Text = val
-                        Case "fuss_gf1_tel" : txtE_FussGF1Tel.Text = val
-                        Case "fuss_gf2_tel" : txtE_FussGF2Tel.Text = val
                     End Select
                 End While
             End Using
@@ -1827,13 +1813,6 @@ Public Class Form1
                 SpeichereEinstellungDB(conn, "smtp_user", txtE_SmtpUser.Text.Trim())
                 SpeichereEinstellungDB(conn, "smtp_pass", txtE_SmtpPass.Text)
                 SpeichereEinstellungDB(conn, "speicherpfad", txtE_Speicherpfad.Text.Trim())
-                SpeichereEinstellungDB(conn, "fuss_gst_name", txtE_FussGstName.Text.Trim())
-                SpeichereEinstellungDB(conn, "fuss_sitz", txtE_FussSitz.Text.Trim())
-                SpeichereEinstellungDB(conn, "fuss_gericht", txtE_FussGericht.Text.Trim())
-                SpeichereEinstellungDB(conn, "fuss_gf1_name", txtE_FussGF1.Text.Trim())
-                SpeichereEinstellungDB(conn, "fuss_gf2_name", txtE_FussGF2.Text.Trim())
-                SpeichereEinstellungDB(conn, "fuss_gf1_tel", txtE_FussGF1Tel.Text.Trim())
-                SpeichereEinstellungDB(conn, "fuss_gf2_tel", txtE_FussGF2Tel.Text.Trim())
             End Using
 
             Dim hinweis As String = ""
@@ -2697,26 +2676,22 @@ Public Class Form1
         ErstelleFeld(gbSmtp, "Benutzername (E-Mail)", txtE_SmtpUser, 460, 28, 230)
         ErstelleFeld(gbSmtp, "Passwort", txtE_SmtpPass, 710, 28, 310)
 
-        ' 6. Speicherort & Fußzeile
-        Dim gbSystem As New GroupBox With {.Text = "6. Speicherort & Rechnungs-Fußzeile", .Location = New Point(20, 875), .Size = New Size(1050, 170)}
+        ' 6. Speicherort
+        ' Keine eigene Fußzeilen-Konfiguration mehr nötig: als Einzelunternehmer ohne
+        ' Geschäftsführer und mit Bürositz = Firmensitz zieht die Rechnung ihre schlanke
+        ' Kontakt-Fußzeile automatisch aus dem Firmenprofil oben (Abschnitt 2).
+        Dim gbSystem As New GroupBox With {.Text = "6. Speicherort", .Location = New Point(20, 875), .Size = New Size(1050, 65)}
         StyleGroupBox(gbSystem)
         ErstelleFeld(gbSystem, "Haupt-Speicherpfad", txtE_Speicherpfad, 20, 28, 310)
-        ErstelleFeld(gbSystem, "Links: Geschäftsstelle", txtE_FussGstName, 20, 90, 200)
-        ErstelleFeld(gbSystem, "Mitte: Sitz", txtE_FussSitz, 240, 90, 200)
-        ErstelleFeld(gbSystem, "Mitte: Gerichtsstand", txtE_FussGericht, 460, 90, 200)
-        ErstelleFeld(gbSystem, "Rechts: 1. GF Name", txtE_FussGF1, 680, 28, 145)
-        ErstelleFeld(gbSystem, "Tel. 1. GF", txtE_FussGF1Tel, 845, 28, 185)
-        ErstelleFeld(gbSystem, "Rechts: 2. GF Name", txtE_FussGF2, 680, 90, 145)
-        ErstelleFeld(gbSystem, "Tel. 2. GF", txtE_FussGF2Tel, 845, 90, 185)
 
         ' Speichern-Button
         Dim btnSpeichern = MachePrimaerButton("💾  EINSTELLUNGEN SPEICHERN", 270, 44)
-        btnSpeichern.Location = New Point(20, 1065)
+        btnSpeichern.Location = New Point(20, 960)
         AddHandler btnSpeichern.Click, AddressOf BtnSpeichern_Einstellungen_Click
 
         ' Gefahrenzone
         Dim pnlGefahr As New Panel With {
-            .Location = New Point(20, 1130),
+            .Location = New Point(20, 1025),
             .Size = New Size(1050, 210),
             .BackColor = Color.FromArgb(255, 248, 248)
         }

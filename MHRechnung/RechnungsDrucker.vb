@@ -107,14 +107,6 @@ Public Class RechnungsDrucker
         Dim textZahlung As String = GetSetting(s, "text_zahlung", "")
         Dim textGutschrift As String = GetSetting(s, "text_gutschrift", "")
 
-        Dim fussGsstName As String = GetSetting(s, "fuss_gst_name", "Büro")
-        Dim fussSitz As String = GetSetting(s, "fuss_sitz", "Sitz der Gesellschaft " & firmaOrt)
-        Dim fussGericht As String = GetSetting(s, "fuss_gericht", "")
-        Dim fussGF1 As String = GetSetting(s, "fuss_gf1_name", "")
-        Dim fussGF1Tel As String = GetSetting(s, "fuss_gf1_tel", "")
-        Dim fussGF2 As String = GetSetting(s, "fuss_gf2_name", "")
-        Dim fussGF2Tel As String = GetSetting(s, "fuss_gf2_tel", "")
-
         ' ── 1. Ordner vorbereiten ─────────────────────────────────────────────
         Dim jahr As String = DateTime.Now.Year.ToString()
         Dim pdfPath As String = Path.Combine(speicherPfad, jahr, "erstellt", "pdf")
@@ -217,7 +209,6 @@ Public Class RechnungsDrucker
             Dim fSmall As New XFont("Arial", 8, XFontStyleEx.Regular)
             Dim fSmallB As New XFont("Arial", 8, XFontStyleEx.Bold)
             Dim fTiny As New XFont("Arial", 7, XFontStyleEx.Regular)
-            Dim fTinyB As New XFont("Arial", 7, XFontStyleEx.Bold)
             Dim fTitle As New XFont("Arial", 28, XFontStyleEx.Bold)
 
             Dim bBlack As XBrush = XBrushes.Black
@@ -230,31 +221,20 @@ Public Class RechnungsDrucker
             If Not File.Exists(logoPfad) Then logoPfad = Path.Combine(speicherPfad, "logo.png")
 
             ' --- HILFSFUNKTIONEN FÜR KOPF/FUSS/TABELLE ---
+            ' Als Einzelunternehmer gibt es keine Pflichtangaben für Geschäftsbriefe
+            ' (die gelten nur für im Handelsregister eingetragene Rechtsformen) und
+            ' auch keinen Geschäftsführer oder eine vom Firmensitz getrennte Geschäfts-
+            ' stelle - deshalb nur eine schlanke, einzeilige Kontakt-Fußzeile.
+            Dim fussZeile As String = String.Join("   ·   ",
+                {firmaName, firmaStrasse, (firmaPLZ & " " & firmaOrt).Trim(),
+                 If(String.IsNullOrEmpty(firmaTel), "", "Tel " & firmaTel),
+                 If(String.IsNullOrEmpty(firmaEmail), "", firmaEmail)}.Where(Function(t) Not String.IsNullOrWhiteSpace(t)))
+
             Dim drawFooter = Sub(g As XGraphics)
-                                 Dim footY As Double = pH - 52
-                                 Dim textYOffset As Double = 6
-                                 Dim col1 As Double = mL
-                                 Dim col2 As Double = mL + cW / 3
-                                 Dim col3 As Double = mL + cW / 3 * 2
-
-                                 g.DrawLine(penGray, mL, footY - 4, mR, footY - 4)
-                                 g.DrawString("Geschäftsstelle", fTinyB, bBlack, col1, footY + textYOffset)
-                                 g.DrawString(fussGsstName, fTiny, bBlack, col1, footY + 9 + textYOffset)
-                                 g.DrawString(firmaStrasse, fTiny, bBlack, col1, footY + 18 + textYOffset)
-                                 g.DrawString(firmaPLZ & " " & firmaOrt, fTiny, bBlack, col1, footY + 27 + textYOffset)
-                                 If Not String.IsNullOrEmpty(firmaTel) Then g.DrawString("Tel: " & firmaTel, fTiny, bBlack, col1, footY + 36 + textYOffset)
-
-                                 g.DrawString(fussSitz, fTiny, bBlack, col2, footY + textYOffset)
-                                 g.DrawString(fussGericht, fTiny, bBlack, col2, footY + 9 + textYOffset)
-
-                                 If Not String.IsNullOrEmpty(fussGF1) Then
-                                     g.DrawString("1. Geschäftsführer " & fussGF1, fTiny, bBlack, col3, footY + textYOffset)
-                                     If Not String.IsNullOrEmpty(fussGF1Tel) Then g.DrawString("Tel: " & fussGF1Tel, fTiny, bBlack, col3, footY + 9 + textYOffset)
-                                 End If
-                                 If Not String.IsNullOrEmpty(fussGF2) Then
-                                     g.DrawString("2. Geschäftsführer " & fussGF2, fTiny, bBlack, col3, footY + 18 + textYOffset)
-                                     If Not String.IsNullOrEmpty(fussGF2Tel) Then g.DrawString("Tel: " & fussGF2Tel, fTiny, bBlack, col3, footY + 27 + textYOffset)
-                                 End If
+                                 Dim footY As Double = pH - 30
+                                 g.DrawLine(penGray, mL, footY - 8, mR, footY - 8)
+                                 Dim fw As Double = g.MeasureString(fussZeile, fTiny).Width
+                                 g.DrawString(fussZeile, fTiny, bGray, mL + (cW - fw) / 2, footY)
                              End Sub
 
             Dim cBez As Double = mL + 2
