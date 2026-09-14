@@ -44,10 +44,11 @@ Public Class DatenbankManager
             sqlCmd.ExecuteNonQuery()
 
             ' 3. Grundeinstellungen NUR einfügen, wenn die Einstellungen-Tabelle noch absolut leer ist.
-            ' Firmenname, Adresse, IBAN usw. werden bewusst NICHT vorbelegt - die trägst du
-            ' selbst im Tab "Einstellungen" ein. Die beiden MwSt-Sätze, die Startnummer und die
-            ' Zahlungstexte bekommen einen sinnvollen Standardwert, damit das Programm sofort
-            ' nutzbar ist und der gesetzlich nötige §24-UStG-Hinweis nicht vergessen wird.
+            ' Die Firmen-/Bankdaten sind hier einmalig aus deiner hochgeladenen Beispielrechnung
+            ' vorbelegt, damit du nicht bei null anfangen musst - änderbar bleibt alles jederzeit
+            ' im Tab "Einstellungen". Die beiden MwSt-Sätze, die Startnummer und die Zahlungstexte
+            ' bekommen ebenfalls einen sinnvollen Standardwert, damit das Programm sofort nutzbar
+            ' ist und der gesetzlich nötige §24-UStG-Hinweis nicht vergessen wird.
             sqlCmd.CommandText = "SELECT COUNT(*) FROM einstellungen"
             Dim anzahl As Integer = Convert.ToInt32(sqlCmd.ExecuteScalar())
 
@@ -56,7 +57,17 @@ Public Class DatenbankManager
                     INSERT INTO einstellungen (schluessel, wert) VALUES
                         ('laufende_rechnungsnummer', '2026001'),
                         ('mwst_satz_1', '7.8'),
-                        ('mwst_satz_2', '5.5');
+                        ('mwst_satz_2', '5.5'),
+                        ('firma_name', 'Max Haug'),
+                        ('firma_strasse', 'Augsburger Str. 32'),
+                        ('firma_plz', '86842'),
+                        ('firma_ort', 'Türkheim'),
+                        ('firma_tel', '08245/2362'),
+                        ('firma_email', 'mail@maxhaug.de'),
+                        ('firma_steuer', '138/191/61423'),
+                        ('firma_iban', 'DE68701695750000013650'),
+                        ('firma_bic', 'GENODEF1TRH'),
+                        ('firma_bank', 'Raiffeisenbank Türkheim');
 
                     INSERT INTO artikel (artikelnummer, bezeichnung, einzelpreis_netto, mwst_satz, einheit) VALUES
                         ('001', 'Ballen Weizenstroh 90er', 30.00, 7.8, 'C62'),
