@@ -1218,17 +1218,6 @@ Public Class Form1
                         Try
                             EmailManager.SendeRechnung(reNr, mitgliedMail, fertigesPdf)
                             anzahlMails += 1
-                            Try
-                                ' Archiv-Kopie an das eigene Konto ist nur ein Komfort-Feature -
-                                ' ein Fehler hier darf den erfolgreichen Rechnungsversand nicht
-                                ' als fehlgeschlagen melden (kein Continue For, kein Abbruch).
-                                ' Der Fehler wird aber nicht mehr verschluckt, sondern separat
-                                ' gesammelt und im Abschlussbericht angezeigt - sonst ist er von
-                                ' hier aus unmöglich zu diagnostizieren.
-                                EmailManager.SendeAusgangskopie(reNr, rData("name"), mitgliedMail, CDec(rData("brutto")), fertigesPdf)
-                            Catch exArchiv As Exception
-                                archivFehlerListe.Add($"Re-{reNr}: {exArchiv.Message}")
-                            End Try
                         Catch ex As Exception
                             fehlerListe.Add($"Rechnung {reNr}: E-Mail an {mitgliedMail} fehlgeschlagen - {ex.Message}")
                         End Try
@@ -1240,6 +1229,20 @@ Public Class Form1
                         DruckeDokument(fertigesPdf, standardDrucker)
                     Next
                 End If
+
+                ' Archiv-Kopie ("Kopie JEDER versendeten Rechnung") gilt für jede verarbeitete
+                ' Rechnung, unabhängig von der Zustellart an den Kunden (Post/E-Mail/Beides) -
+                ' sie dient der eigenen Dokumentation, nicht dem Kundenversand. Deshalb hier
+                ' unconditional, nicht mehr an "versandart = E-Mail" gekoppelt. Ist nur ein
+                ' Komfort-Feature - ein Fehler hier darf den erfolgreichen Rechnungsversand
+                ' bzw. -druck nicht als fehlgeschlagen melden (kein Continue For, kein Abbruch),
+                ' wird aber nicht mehr verschluckt, sondern separat gesammelt und im
+                ' Abschlussbericht angezeigt.
+                Try
+                    EmailManager.SendeAusgangskopie(reNr, rData("name"), mitgliedMail, CDec(rData("brutto")), fertigesPdf)
+                Catch exArchiv As Exception
+                    archivFehlerListe.Add($"Re-{reNr}: {exArchiv.Message}")
+                End Try
 
                 Dim upCmd = New SQLiteCommand("UPDATE rechnungen SET status = 'Verarbeitet & Exportiert' WHERE id = @id", conn)
                 upCmd.Parameters.AddWithValue("@id", reID)
