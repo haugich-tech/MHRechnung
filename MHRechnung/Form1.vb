@@ -595,9 +595,11 @@ Public Class Form1
         Dim istAusgewaehlt As Boolean = (e.State And DrawItemState.Selected) = DrawItemState.Selected
         Dim textFarbe As Color = If(istAusgewaehlt, CLR_WEISS, CLR_TEXT_DUNKEL)
 
-        Dim mwstRect As New Rectangle(e.Bounds.Right - 62, e.Bounds.Top, 54, e.Bounds.Height)
-        Dim preisRect As New Rectangle(e.Bounds.Right - 160, e.Bounds.Top, 92, e.Bounds.Height)
-        Dim beschrRect As New Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 168, e.Bounds.Height)
+        ' Preis rückt dicht an die MwSt heran (nur noch 4px Abstand statt vorher 6px Lücke bei
+        ' gleichzeitig schmalerer Preis-Spalte) - dadurch bleibt mehr Platz für die Beschreibung.
+        Dim mwstRect As New Rectangle(e.Bounds.Right - 54, e.Bounds.Top, 48, e.Bounds.Height)
+        Dim preisRect As New Rectangle(e.Bounds.Right - 132, e.Bounds.Top, 74, e.Bounds.Height)
+        Dim beschrRect As New Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 140, e.Bounds.Height)
 
         Dim flagsRechts = TextFormatFlags.Right Or TextFormatFlags.VerticalCenter Or TextFormatFlags.SingleLine
         Dim flagsLinks = TextFormatFlags.Left Or TextFormatFlags.VerticalCenter Or TextFormatFlags.EndEllipsis Or TextFormatFlags.SingleLine
