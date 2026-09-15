@@ -65,6 +65,8 @@ Public Class Form1
 
     ' --- Elemente für Tab 3 (Artikel) ---
     Private dgvArtikelVerwaltung As New DataGridView()
+    Private cmsArtikel As New ContextMenuStrip()
+    Private dragQuelleIndex As Integer = -1
 
     ' --- Elemente für Tab 4 (Kunden) ---
     Private WithEvents dgvMitglieder As New DataGridView()
@@ -562,7 +564,11 @@ Public Class Form1
 
     Private Sub LadeArtikelListeLinks()
         Using conn = DatenbankManager.HoleVerbindung()
-            Dim sql = "SELECT id, artikelnummer || ' | ' || REPLACE(REPLACE(CASE WHEN LENGTH(bezeichnung) > 25 THEN SUBSTR(bezeichnung, 1, 25) || '...' ELSE bezeichnung END, char(10), ' '), char(13), '') || ' | ' || printf('%.2f', einzelpreis_netto) || ' € (' || mwst_satz || '%)' AS anzeige, bezeichnung, einzelpreis_netto, mwst_satz FROM artikel ORDER BY artikelnummer"
+            ' Artikelnummer bewusst nicht mehr im Anzeigetext (nur noch interner Ordnungs-/
+            ' Kürzel-Zweck) - die Sortierung nach artikelnummer bleibt aber unverändert, weil
+            ' die Nummer genau dafür da ist: häufige Artikel bekommen eine niedrige Nummer und
+            ' stehen dadurch oben in der Liste.
+            Dim sql = "SELECT id, REPLACE(REPLACE(CASE WHEN LENGTH(bezeichnung) > 25 THEN SUBSTR(bezeichnung, 1, 25) || '...' ELSE bezeichnung END, char(10), ' '), char(13), '') || ' | ' || printf('%.2f', einzelpreis_netto) || ' € (' || mwst_satz || '%)' AS anzeige, bezeichnung, einzelpreis_netto, mwst_satz FROM artikel ORDER BY artikelnummer"
             Dim daArt As New SQLiteDataAdapter(sql, conn)
             Dim dtArt As New DataTable()
             daArt.Fill(dtArt)
@@ -1311,9 +1317,14 @@ Public Class Form1
         dgvArtikelVerwaltung.DefaultCellStyle.Font = FONT_NORMAL
         dgvArtikelVerwaltung.RowTemplate.Height = 32
 
+        ' Artikelnummer dient nur noch intern der Reihenfolge (niedrige Nummer = oben) und dem
+        ' "++Nummer"-Kürzel bei der Rechnungserfassung - in der Liste selbst ist sie nur noch
+        ' Ballast, deshalb hier ausgeblendet (bleibt aber als Spalte gebunden, siehe
+        ' BearbeiteArtikelZeile/LoescheArtikelZeile/VerschiebeArtikel, die row.Cells("Nr")
+        ' bzw. eine eigene Abfrage nutzen). Sichtbar bleibt sie im Bearbeiten-Fenster (Titel)
+        ' und im Excel-Export/Import.
         If dgvArtikelVerwaltung.Columns.Contains("Nr") Then
-            dgvArtikelVerwaltung.Columns("Nr").Width = 55
-            dgvArtikelVerwaltung.Columns("Nr").DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter
+            dgvArtikelVerwaltung.Columns("Nr").Visible = False
         End If
 
         If dgvArtikelVerwaltung.Columns.Contains("Beschreibung") Then
@@ -1335,8 +1346,12 @@ Public Class Form1
 
     Private Sub DgvArtikel_CellDoubleClick(sender As Object, e As DataGridViewCellEventArgs)
         If e.RowIndex < 0 OrElse dgvArtikelVerwaltung.Rows(e.RowIndex).IsNewRow Then Return
+        BearbeiteArtikelZeile(dgvArtikelVerwaltung.Rows(e.RowIndex))
+    End Sub
 
-        Dim row As DataGridViewRow = dgvArtikelVerwaltung.Rows(e.RowIndex)
+    ' Gemeinsame Bearbeiten-Logik für Doppelklick UND das Rechtsklick-Kontextmenü -
+    ' unverändert übernommen, nur nicht mehr an ein bestimmtes Klick-Ereignis gebunden.
+    Private Sub BearbeiteArtikelZeile(row As DataGridViewRow)
         Dim artNr = row.Cells("Nr").Value.ToString()
 
         Using editorForm As New Form With {
@@ -1423,6 +1438,87 @@ Public Class Form1
                 LadeArtikelListeLinks()
             End If
         End Using
+    End Sub
+
+    ' Löschen direkt übers Rechtsklick-Menü, ohne erst das Bearbeiten-Fenster zu öffnen -
+    ' die Sicherheitsabfrage bleibt wie beim Löschen-Button im Bearbeiten-Fenster erhalten.
+    Private Sub LoescheArtikelZeile(row As DataGridViewRow)
+        Dim artNr = row.Cells("Nr").Value.ToString()
+        If MessageBox.Show("Artikel wirklich unwiderruflich löschen?", "Achtung", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) = DialogResult.Yes Then
+            Using conn = DatenbankManager.HoleVerbindung()
+                Dim cmd As New SQLiteCommand("DELETE FROM artikel WHERE artikelnummer = @nr", conn)
+                cmd.Parameters.AddWithValue("@nr", artNr)
+                cmd.ExecuteNonQuery()
+            End Using
+            LadeArtikelTabelle()
+            LadeArtikelListeLinks()
+        End If
+    End Sub
+
+    ' Verschiebt einen Artikel per Drag & Drop an eine neue Position. Es gibt bewusst keine
+    ' separate Sortier-Spalte: Die Artikelnummer selbst ist der Ordnungs-Maßstab (niedrige
+    ' Nummer = oben, siehe ORDER BY artikelnummer in LadeArtikelTabelle/LadeArtikelListeLinks) -
+    ' beim Verschieben werden deshalb einfach alle Artikel anhand der neuen Reihenfolge lückenlos
+    ' neu durchnummeriert (001, 002, ...), genau wie beim automatischen Vergeben einer neuen
+    ' Nummer an anderer Stelle im Programm.
+    Private Sub VerschiebeArtikel(vonIndex As Integer, nachIndex As Integer)
+        Dim ids As New List(Of Integer)
+        Using conn = DatenbankManager.HoleVerbindung()
+            Dim cmd As New SQLiteCommand("SELECT id FROM artikel ORDER BY artikelnummer", conn)
+            Using r = cmd.ExecuteReader()
+                While r.Read()
+                    ids.Add(CInt(r("id")))
+                End While
+            End Using
+        End Using
+
+        If vonIndex < 0 OrElse vonIndex >= ids.Count OrElse nachIndex < 0 OrElse nachIndex >= ids.Count Then Return
+
+        Dim verschobeneId As Integer = ids(vonIndex)
+        ids.RemoveAt(vonIndex)
+        ids.Insert(nachIndex, verschobeneId)
+
+        Using conn = DatenbankManager.HoleVerbindung()
+            Using trans = conn.BeginTransaction()
+                For i As Integer = 0 To ids.Count - 1
+                    Dim cmdUp As New SQLiteCommand("UPDATE artikel SET artikelnummer = @nr WHERE id = @id", conn, trans)
+                    cmdUp.Parameters.AddWithValue("@nr", (i + 1).ToString("D3"))
+                    cmdUp.Parameters.AddWithValue("@id", ids(i))
+                    cmdUp.ExecuteNonQuery()
+                Next
+                trans.Commit()
+            End Using
+        End Using
+
+        LadeArtikelTabelle()
+        LadeArtikelListeLinks()
+    End Sub
+
+    ' Rechtsklick: markiert die Zeile unter dem Mauszeiger, bevor das Kontextmenü aufgeht
+    ' (sonst würde sich das Menü auf die vorher markierte Zeile beziehen).
+    ' Linksklick: merkt sich die Startzeile für ein mögliches Drag & Drop (siehe MouseUp) -
+    ' interferiert nicht mit normalem Klick/Doppelklick, weil bei einem reinen Klick ohne
+    ' Bewegung Start- und Zielzeile identisch sind und MouseUp dann nichts verschiebt.
+    Private Sub DgvArtikel_MouseDown(sender As Object, e As MouseEventArgs)
+        Dim hit = dgvArtikelVerwaltung.HitTest(e.X, e.Y)
+        If hit.RowIndex < 0 Then Return
+
+        If e.Button = MouseButtons.Right Then
+            dgvArtikelVerwaltung.ClearSelection()
+            dgvArtikelVerwaltung.Rows(hit.RowIndex).Selected = True
+            dgvArtikelVerwaltung.CurrentCell = dgvArtikelVerwaltung.Rows(hit.RowIndex).Cells(If(hit.ColumnIndex >= 0, hit.ColumnIndex, 0))
+        ElseIf e.Button = MouseButtons.Left Then
+            dragQuelleIndex = hit.RowIndex
+        End If
+    End Sub
+
+    Private Sub DgvArtikel_MouseUp(sender As Object, e As MouseEventArgs)
+        If dragQuelleIndex < 0 Then Return
+        Dim zielIndex = dgvArtikelVerwaltung.HitTest(e.X, e.Y).RowIndex
+        If zielIndex >= 0 AndAlso zielIndex <> dragQuelleIndex Then
+            VerschiebeArtikel(dragQuelleIndex, zielIndex)
+        End If
+        dragQuelleIndex = -1
     End Sub
 
     Private Sub ExportiereExcel(sender As Object, e As EventArgs)
@@ -2625,6 +2721,25 @@ Public Class Form1
         dgvArtikelVerwaltung.DefaultCellStyle.WrapMode = DataGridViewTriState.True
         dgvArtikelVerwaltung.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells
         AddHandler dgvArtikelVerwaltung.CellDoubleClick, AddressOf DgvArtikel_CellDoubleClick
+        AddHandler dgvArtikelVerwaltung.MouseDown, AddressOf DgvArtikel_MouseDown
+        AddHandler dgvArtikelVerwaltung.MouseUp, AddressOf DgvArtikel_MouseUp
+
+        ' Rechtsklick-Menü: Bearbeiten (identisch zum Doppelklick) und Löschen (direkt, mit
+        ' Sicherheitsabfrage). Doppelklick bleibt zusätzlich unverändert bestehen.
+        Dim miArtikelBearbeiten As New ToolStripMenuItem("Bearbeiten")
+        Dim miArtikelLoeschen As New ToolStripMenuItem("Löschen")
+        AddHandler miArtikelBearbeiten.Click, Sub()
+                                                   If dgvArtikelVerwaltung.SelectedRows.Count > 0 Then
+                                                       BearbeiteArtikelZeile(dgvArtikelVerwaltung.SelectedRows(0))
+                                                   End If
+                                               End Sub
+        AddHandler miArtikelLoeschen.Click, Sub()
+                                                 If dgvArtikelVerwaltung.SelectedRows.Count > 0 Then
+                                                     LoescheArtikelZeile(dgvArtikelVerwaltung.SelectedRows(0))
+                                                 End If
+                                             End Sub
+        cmsArtikel.Items.AddRange({miArtikelBearbeiten, miArtikelLoeschen})
+        dgvArtikelVerwaltung.ContextMenuStrip = cmsArtikel
 
         Dim pnlMain As New Panel With {.Dock = DockStyle.Fill, .Padding = New Padding(12, 8, 12, 12)}
         pnlMain.Controls.Add(dgvArtikelVerwaltung)
