@@ -579,6 +579,36 @@ Public Class Form1
         End Using
     End Sub
 
+    ' Zeichnet eine Zeile der Artikel-Auswahlliste in drei festen Spalten: Beschreibung links
+    ' (mit "..." abgeschnitten, falls zu lang für den verbleibenden Platz), Preis und MwSt-Satz
+    ' jeweils rechtsbündig an einer festen Position - dadurch stehen Preis und MwSt bei jeder
+    ' Zeile exakt untereinander, unabhängig von der Länge der Artikelbezeichnung.
+    Private Sub LstArtikel_DrawItem(sender As Object, e As DrawItemEventArgs)
+        If e.Index < 0 Then Return
+        e.DrawBackground()
+
+        Dim row As DataRowView = DirectCast(lstArtikel.Items(e.Index), DataRowView)
+        Dim bezeichnung As String = row("bezeichnung").ToString()
+        Dim preisText As String = CDec(row("einzelpreis_netto")).ToString("N2") & " €"
+        Dim mwstText As String = FmtMwSt(CDec(row("mwst_satz")))
+
+        Dim istAusgewaehlt As Boolean = (e.State And DrawItemState.Selected) = DrawItemState.Selected
+        Dim textFarbe As Color = If(istAusgewaehlt, CLR_WEISS, CLR_TEXT_DUNKEL)
+
+        Dim mwstRect As New Rectangle(e.Bounds.Right - 62, e.Bounds.Top, 54, e.Bounds.Height)
+        Dim preisRect As New Rectangle(e.Bounds.Right - 160, e.Bounds.Top, 92, e.Bounds.Height)
+        Dim beschrRect As New Rectangle(e.Bounds.Left + 6, e.Bounds.Top, e.Bounds.Width - 168, e.Bounds.Height)
+
+        Dim flagsRechts = TextFormatFlags.Right Or TextFormatFlags.VerticalCenter Or TextFormatFlags.SingleLine
+        Dim flagsLinks = TextFormatFlags.Left Or TextFormatFlags.VerticalCenter Or TextFormatFlags.EndEllipsis Or TextFormatFlags.SingleLine
+
+        TextRenderer.DrawText(e.Graphics, bezeichnung, e.Font, beschrRect, textFarbe, flagsLinks)
+        TextRenderer.DrawText(e.Graphics, preisText, e.Font, preisRect, textFarbe, flagsRechts)
+        TextRenderer.DrawText(e.Graphics, mwstText, e.Font, mwstRect, textFarbe, flagsRechts)
+
+        e.DrawFocusRectangle()
+    End Sub
+
     Private Sub LadeMitgliederListe()
         Using conn = DatenbankManager.HoleVerbindung()
             Dim sql = "SELECT id, mitgliedsnummer AS 'Nr', name AS 'Name', ort AS 'Ort' FROM mitglieder ORDER BY name"
@@ -2257,11 +2287,19 @@ Public Class Form1
         lstArtikel.BorderStyle = BorderStyle.None
         ' War FONT_KLEIN (8,5pt) - das war eigentlich gemeint, als von der zu kleinen Schrift
         ' im Artikelstamm die Rede war (die Artikelauswahl in der Rechnungserfassung, nicht die
-        ' Artikelverwaltung). Zeilenhöhe braucht hier keine manuelle Anpassung, eine normale
-        ' ListBox skaliert die Zeilenhöhe automatisch mit der Schriftgröße mit.
+        ' Artikelverwaltung).
         lstArtikel.Font = New Font("Segoe UI", 12)
         lstArtikel.BackColor = CLR_WEISS
         lstArtikel.ForeColor = CLR_TEXT_DUNKEL
+
+        ' Eigenes Zeichnen (Owner-Draw) statt nur eines einzelnen Textstrings pro Zeile: Damit
+        ' stehen Preis und MwSt-Satz in zwei festen, rechtsbündigen Spalten immer exakt
+        ' untereinander - unabhängig davon, wie lang die jeweilige Artikelbezeichnung ist.
+        ' Bei DrawMode.OwnerDrawFixed skaliert die Zeilenhöhe nicht mehr automatisch mit der
+        ' Schrift mit, deshalb hier passend zur 12pt-Schrift von Hand gesetzt.
+        lstArtikel.DrawMode = DrawMode.OwnerDrawFixed
+        lstArtikel.ItemHeight = 28
+        AddHandler lstArtikel.DrawItem, AddressOf LstArtikel_DrawItem
 
         Dim pnlListContainer As New Panel With {.Dock = DockStyle.Fill, .BackColor = CLR_WEISS, .Padding = New Padding(1)}
         AddHandler pnlListContainer.Paint, Sub(s As Object, ev As PaintEventArgs)
