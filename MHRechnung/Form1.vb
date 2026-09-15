@@ -1315,8 +1315,11 @@ Public Class Form1
         End Using
 
         dgvArtikelVerwaltung.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None
-        dgvArtikelVerwaltung.DefaultCellStyle.Font = FONT_NORMAL
-        dgvArtikelVerwaltung.RowTemplate.Height = 32
+        ' Eigene, größere Schrift nur für diese Tabelle (bisher FONT_NORMAL = 9,5pt, wirkte zu
+        ' winzig) - bewusst nicht FONT_NORMAL selbst geändert, das würde das ganze Programm
+        ' betreffen. Zeilenhöhe passend mitvergrößert (32 -> 42px).
+        dgvArtikelVerwaltung.DefaultCellStyle.Font = New Font("Segoe UI", 12)
+        dgvArtikelVerwaltung.RowTemplate.Height = 42
 
         ' Artikelnummer dient nur noch intern der Reihenfolge (niedrige Nummer = oben) und dem
         ' "++Nummer"-Kürzel bei der Rechnungserfassung - in der Liste selbst ist sie nur noch
