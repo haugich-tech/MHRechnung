@@ -416,7 +416,11 @@ Public Class RechnungsDrucker
 
                 ' Artikel zeichnen
                 If pos.anz <> 0 AndAlso pos.prs <> 0 Then
-                    DrawRight(currentGfx, pos.anz.ToString("N0"), fNorm, bBlack, cAnz + 20, rowY)
+                    ' "N0" rundete Bruchmengen (z.B. 2,5) auf ganze Zahlen und zeigte "3" an,
+                    ' obwohl intern korrekt mit 2,5 gerechnet wurde - reiner Anzeigefehler.
+                    ' Wie FormatMwSt: InvariantCulture + manuelles Komma, damit die Ausgabe nicht
+                    ' vom Thread-Culture zur Druckzeit abhängt.
+                    DrawRight(currentGfx, pos.anz.ToString("0.##", Globalization.CultureInfo.InvariantCulture).Replace(".", ","), fNorm, bBlack, cAnz + 20, rowY)
                     DrawRight(currentGfx, pos.prs.ToString("N2") & " €", fNorm, bBlack, cPre + 20, rowY)
                     DrawRight(currentGfx, FormatMwSt(pos.mwst), fNorm, bBlack, cMwSt + 15, rowY)
                     DrawRight(currentGfx, zeileNetto.ToString("N2") & " €", fNorm, bBlack, mR - 2, rowY)
