@@ -1120,6 +1120,7 @@ Public Class Form1
         Dim baseDir As String = "C:\MHRechnung"
         Dim verarbeiteteRechnungen As New List(Of Dictionary(Of String, String))()
         Dim fehlerListe As New List(Of String)()
+        Dim archivFehlerListe As New List(Of String)()
 
         Dim standardDrucker As String = ""
         Dim druckKopien As Integer = 1
@@ -1220,9 +1221,13 @@ Public Class Form1
                             Try
                                 ' Archiv-Kopie an das eigene Konto ist nur ein Komfort-Feature -
                                 ' ein Fehler hier darf den erfolgreichen Rechnungsversand nicht
-                                ' als fehlgeschlagen melden, deshalb eigener, stiller Catch-Block.
+                                ' als fehlgeschlagen melden (kein Continue For, kein Abbruch).
+                                ' Der Fehler wird aber nicht mehr verschluckt, sondern separat
+                                ' gesammelt und im Abschlussbericht angezeigt - sonst ist er von
+                                ' hier aus unmöglich zu diagnostizieren.
                                 EmailManager.SendeAusgangskopie(reNr, rData("name"), mitgliedMail, CDec(rData("brutto")), fertigesPdf)
-                            Catch
+                            Catch exArchiv As Exception
+                                archivFehlerListe.Add($"Re-{reNr}: {exArchiv.Message}")
                             End Try
                         Catch ex As Exception
                             fehlerListe.Add($"Rechnung {reNr}: E-Mail an {mitgliedMail} fehlgeschlagen - {ex.Message}")
@@ -1273,10 +1278,16 @@ Public Class Form1
         ' --- Abschlussbericht ---
         Dim bericht As String = $"{verarbeiteteRechnungen.Count} von {anzahl} Rechnungen wurden erfolgreich verarbeitet." & vbCrLf &
                                 $"{anzahlMails} E-Mails wurden versendet."
+        If archivFehlerListe.Count > 0 Then
+            bericht &= vbCrLf & vbCrLf & "ℹ Archiv-Kopie(n) konnten nicht gesendet werden (die Rechnung selbst wurde trotzdem korrekt versendet):" & vbCrLf &
+                       String.Join(vbCrLf, archivFehlerListe)
+        End If
         If fehlerListe.Count > 0 Then
             bericht &= vbCrLf & vbCrLf & "⚠ FEHLER (diese Rechnungen bleiben auf 'Erfasst' und können erneut verarbeitet werden):" & vbCrLf &
                        String.Join(vbCrLf, fehlerListe)
             MessageBox.Show(bericht, "Workflow mit Fehlern abgeschlossen", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+        ElseIf archivFehlerListe.Count > 0 Then
+            MessageBox.Show(bericht, "Workflow Abgeschlossen (mit Hinweis)", MessageBoxButtons.OK, MessageBoxIcon.Information)
         Else
             MessageBox.Show(bericht, "Workflow Abgeschlossen", MessageBoxButtons.OK, MessageBoxIcon.Information)
         End If
