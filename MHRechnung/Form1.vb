@@ -2255,7 +2255,11 @@ Public Class Form1
 
         lstArtikel.Dock = DockStyle.Fill
         lstArtikel.BorderStyle = BorderStyle.None
-        lstArtikel.Font = FONT_KLEIN
+        ' War FONT_KLEIN (8,5pt) - das war eigentlich gemeint, als von der zu kleinen Schrift
+        ' im Artikelstamm die Rede war (die Artikelauswahl in der Rechnungserfassung, nicht die
+        ' Artikelverwaltung). Zeilenhöhe braucht hier keine manuelle Anpassung, eine normale
+        ' ListBox skaliert die Zeilenhöhe automatisch mit der Schriftgröße mit.
+        lstArtikel.Font = New Font("Segoe UI", 12)
         lstArtikel.BackColor = CLR_WEISS
         lstArtikel.ForeColor = CLR_TEXT_DUNKEL
 
