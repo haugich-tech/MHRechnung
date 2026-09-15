@@ -67,6 +67,7 @@ Public Class Form1
     Private dgvArtikelVerwaltung As New DataGridView()
     Private cmsArtikel As New ContextMenuStrip()
     Private dragQuelleIndex As Integer = -1
+    Private dragZielIndex As Integer = -1
 
     ' --- Elemente für Tab 4 (Kunden) ---
     Private WithEvents dgvMitglieder As New DataGridView()
@@ -1512,6 +1513,30 @@ Public Class Form1
         End If
     End Sub
 
+    ' Zeigt während des Ziehens eine Einfüge-Linie an der Zielposition an (wie man's aus dem
+    ' Windows Explorer beim Verschieben von Dateien kennt). Zieht man nach unten, landet der
+    ' Artikel HINTER der Zielzeile (Linie unten), zieht man nach oben, landet er DAVOR (Linie
+    ' oben) - das entspricht genau dem tatsächlichen Verhalten von VerschiebeArtikel.
+    Private Sub DgvArtikel_MouseMove(sender As Object, e As MouseEventArgs)
+        If dragQuelleIndex < 0 Then Return
+        Dim neuesZiel = dgvArtikelVerwaltung.HitTest(e.X, e.Y).RowIndex
+        If neuesZiel <> dragZielIndex Then
+            dragZielIndex = neuesZiel
+            dgvArtikelVerwaltung.Invalidate()
+        End If
+    End Sub
+
+    Private Sub DgvArtikel_Paint(sender As Object, e As PaintEventArgs)
+        If dragQuelleIndex < 0 OrElse dragZielIndex < 0 OrElse dragZielIndex = dragQuelleIndex Then Return
+        If dragZielIndex >= dgvArtikelVerwaltung.Rows.Count Then Return
+        Dim rect = dgvArtikelVerwaltung.GetRowDisplayRectangle(dragZielIndex, True)
+        If rect.IsEmpty Then Return
+        Dim y As Integer = If(dragZielIndex > dragQuelleIndex, rect.Bottom - 1, rect.Top)
+        Using pen As New Pen(Color.FromArgb(61, 90, 128), 3) ' Kornblumenblau, passend zum Programmdesign
+            e.Graphics.DrawLine(pen, rect.Left, y, rect.Right, y)
+        End Using
+    End Sub
+
     Private Sub DgvArtikel_MouseUp(sender As Object, e As MouseEventArgs)
         If dragQuelleIndex < 0 Then Return
         Dim zielIndex = dgvArtikelVerwaltung.HitTest(e.X, e.Y).RowIndex
@@ -1519,6 +1544,8 @@ Public Class Form1
             VerschiebeArtikel(dragQuelleIndex, zielIndex)
         End If
         dragQuelleIndex = -1
+        dragZielIndex = -1
+        dgvArtikelVerwaltung.Invalidate()
     End Sub
 
     Private Sub ExportiereExcel(sender As Object, e As EventArgs)
@@ -2722,7 +2749,9 @@ Public Class Form1
         dgvArtikelVerwaltung.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells
         AddHandler dgvArtikelVerwaltung.CellDoubleClick, AddressOf DgvArtikel_CellDoubleClick
         AddHandler dgvArtikelVerwaltung.MouseDown, AddressOf DgvArtikel_MouseDown
+        AddHandler dgvArtikelVerwaltung.MouseMove, AddressOf DgvArtikel_MouseMove
         AddHandler dgvArtikelVerwaltung.MouseUp, AddressOf DgvArtikel_MouseUp
+        AddHandler dgvArtikelVerwaltung.Paint, AddressOf DgvArtikel_Paint
 
         ' Rechtsklick-Menü: Bearbeiten (identisch zum Doppelklick) und Löschen (direkt, mit
         ' Sicherheitsabfrage). Doppelklick bleibt zusätzlich unverändert bestehen.
