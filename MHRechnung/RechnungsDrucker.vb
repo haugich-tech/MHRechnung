@@ -169,24 +169,50 @@ Public Class RechnungsDrucker
         End Using
 
         Dim nettoGesamt As Decimal = 0
-        Dim nettoBasisProSatz As New Dictionary(Of Decimal, Decimal)
-
-        For Each pos In positionen
-            ' Zeilennetto auf 2 Stellen runden - identische Logik wie im ZUGFeRD-XML
-            Dim zn As Decimal = Math.Round(pos.anz * pos.prs, 2, MidpointRounding.AwayFromZero)
-            nettoGesamt += zn
-            If Not nettoBasisProSatz.ContainsKey(pos.mwst) Then nettoBasisProSatz(pos.mwst) = 0
-            nettoBasisProSatz(pos.mwst) += zn
-        Next
-        ' Steuer auf die gerundete Basis berechnen - PDF stimmt damit exakt mit XML überein
-        Dim mwstBetragProSatz As New Dictionary(Of Decimal, Decimal)
         Dim mwstGesamt As Decimal = 0
-        For Each kv In nettoBasisProSatz
-            Dim betrag As Decimal = Math.Round(kv.Value * (kv.Key / 100D), 2, MidpointRounding.AwayFromZero)
-            mwstBetragProSatz(kv.Key) = betrag
-            mwstGesamt += betrag
-        Next
-        Dim bruttoGesamt As Decimal = nettoGesamt + mwstGesamt
+        Dim bruttoGesamt As Decimal = 0
+        Dim nettoBasisProSatz As New Dictionary(Of Decimal, Decimal)
+        Dim mwstBetragProSatz As New Dictionary(Of Decimal, Decimal)
+
+        If preisart = "Brutto" Then
+            ' Bei einer Brutto-Rechnung ist der eingegebene Bruttopreis die vereinbarte, "echte"
+            ' Zahl (z.B. glatt 2.000,00 €) - deshalb hier als Ausgangspunkt nehmen und Netto/
+            ' Steuer je Satz davon zurückrechnen (Steuer = Brutto - Netto, exakte Subtraktion),
+            ' statt wie im Netto-Zweig unten erst Netto zu runden und Brutto daraus
+            ' hochzurechnen. Genau das hätte sonst wieder die Cent-Abweichung erzeugt, die der
+            ' ganze Netto/Brutto-Umbau vermeiden sollte (z.B. 4.000,01 € statt der vereinbarten
+            ' glatten 4.000,00 €).
+            Dim bruttoBasisProSatz As New Dictionary(Of Decimal, Decimal)
+            For Each pos In positionen
+                Dim zb As Decimal = Math.Round(pos.anz * pos.prsBrutto, 2, MidpointRounding.AwayFromZero)
+                If Not bruttoBasisProSatz.ContainsKey(pos.mwst) Then bruttoBasisProSatz(pos.mwst) = 0
+                bruttoBasisProSatz(pos.mwst) += zb
+            Next
+            For Each kv In bruttoBasisProSatz
+                Dim nettoBucket As Decimal = Math.Round(kv.Value / (1 + kv.Key / 100D), 2, MidpointRounding.AwayFromZero)
+                Dim steuerBucket As Decimal = kv.Value - nettoBucket
+                nettoBasisProSatz(kv.Key) = nettoBucket
+                mwstBetragProSatz(kv.Key) = steuerBucket
+                nettoGesamt += nettoBucket
+                mwstGesamt += steuerBucket
+                bruttoGesamt += kv.Value
+            Next
+        Else
+            For Each pos In positionen
+                ' Zeilennetto auf 2 Stellen runden - identische Logik wie im ZUGFeRD-XML
+                Dim zn As Decimal = Math.Round(pos.anz * pos.prs, 2, MidpointRounding.AwayFromZero)
+                nettoGesamt += zn
+                If Not nettoBasisProSatz.ContainsKey(pos.mwst) Then nettoBasisProSatz(pos.mwst) = 0
+                nettoBasisProSatz(pos.mwst) += zn
+            Next
+            ' Steuer auf die gerundete Basis berechnen - PDF stimmt damit exakt mit XML überein
+            For Each kv In nettoBasisProSatz
+                Dim betrag As Decimal = Math.Round(kv.Value * (kv.Key / 100D), 2, MidpointRounding.AwayFromZero)
+                mwstBetragProSatz(kv.Key) = betrag
+                mwstGesamt += betrag
+            Next
+            bruttoGesamt = nettoGesamt + mwstGesamt
+        End If
 
         ' --- GUTSCHRIFTEN-LOGIK ---
         Dim titelText As String = "RECHNUNG"
