@@ -2409,18 +2409,6 @@ Public Class Form1
             .TextAlign = ContentAlignment.MiddleLeft
         }
 
-        ' War früher "Preis-Eingabe: NETTO/BRUTTO" (globale Eingabeart) - jetzt legt dieselbe
-        ' Stelle fest, welche Preisspalte auf der GEDRUCKTEN Rechnung erscheint. Wird beim
-        ' Ankreuzen eines Kunden aus dessen Stammdaten vorbelegt (siehe ChkMitglieder_ItemCheck).
-        cbPreisart.Location = New Point(210, 7)
-        cbPreisart.Size = New Size(210, 30)
-        cbPreisart.DropDownStyle = ComboBoxStyle.DropDownList
-        cbPreisart.FlatStyle = FlatStyle.Flat
-        cbPreisart.BackColor = CLR_WEISS
-        cbPreisart.Font = FONT_NORMAL
-        cbPreisart.Items.AddRange({"Rechnung zeigt: NETTO", "Rechnung zeigt: BRUTTO"})
-        cbPreisart.SelectedIndex = 0
-
         btnRechnungErstellen = New Button With {
             .Text = "RECHNUNG ERSTELLEN",
             .Width = 190,
@@ -2435,7 +2423,7 @@ Public Class Form1
         btnRechnungErstellen.FlatAppearance.BorderSize = 0
         AddHandler btnRechnungErstellen.Click, AddressOf SpeichereRechnung
 
-        pnlMTop.Controls.AddRange({lblEditor, cbPreisart, btnRechnungErstellen})
+        pnlMTop.Controls.AddRange({lblEditor, btnRechnungErstellen})
 
         ' Spalten-Header
         Dim headerWidth As Integer = pnlM.Width - 20
@@ -2518,7 +2506,26 @@ Public Class Form1
         txtLieferdatum.Text = DateTime.Now.ToString("dd.MM.yyyy")
         pnlLieferdatum.Controls.AddRange({txtLieferdatum, lblLieferdatum})
 
+        ' Rechnungsart hierher verschoben (war vorher oben über der Artikelliste) - das
+        ' betrifft wie das Lieferdatum die ganze Rechnung, nicht einzelne Positionen, deshalb
+        ' gehört es zu den anderen rechnungsweiten Angaben in dieser Spalte, nicht in die
+        ' Werkzeugleiste direkt über den Artikelzeilen. Wird beim Ankreuzen eines Kunden aus
+        ' dessen Stammdaten vorbelegt (siehe ChkMitglieder_ItemCheck), bleibt aber pro
+        ' Rechnung überschreibbar.
+        Dim pnlPreisart As New Panel With {.Dock = DockStyle.Top, .Height = 34, .BackColor = CLR_HINTERGRUND, .Padding = New Padding(0, 2, 0, 6)}
+        Dim lblPreisart As New Label With {.Text = "Rechnungsart:", .Dock = DockStyle.Left, .Width = 90, .Font = FONT_KLEIN, .ForeColor = CLR_TEXT_GRAU, .TextAlign = ContentAlignment.MiddleLeft}
+        cbPreisart.Dock = DockStyle.Left
+        cbPreisart.Width = 200
+        cbPreisart.DropDownStyle = ComboBoxStyle.DropDownList
+        cbPreisart.FlatStyle = FlatStyle.Flat
+        cbPreisart.BackColor = CLR_WEISS
+        cbPreisart.Font = FONT_NORMAL
+        cbPreisart.Items.AddRange({"Rechnung zeigt: NETTO", "Rechnung zeigt: BRUTTO"})
+        cbPreisart.SelectedIndex = 0
+        pnlPreisart.Controls.AddRange({cbPreisart, lblPreisart})
+
         pnlR.Controls.Add(pnlChkContainer)
+        pnlR.Controls.Add(pnlPreisart)
         pnlR.Controls.Add(pnlLieferdatum)
         pnlR.Controls.Add(lblEmpfHdr)
 
