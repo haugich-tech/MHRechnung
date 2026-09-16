@@ -52,8 +52,11 @@ Public Class Form1
     Private pnlPlusContainer As Panel
     Private btnRechnungErstellen As Button
     Private lblSummenTab1 As New Label()
-    Private WithEvents cbEingabeModus As New ComboBox()
-    Private lblHeaderPreis As New Label()
+    ' Ersetzt den früheren cbEingabeModus (Preis-Eingabe NETTO/BRUTTO für die ganze Rechnung):
+    ' Jede Zeile hat jetzt eigene, synchronisierte Netto-/Brutto-Felder, deshalb ist die globale
+    ' Eingabeart-Wahl überflüssig. cbPreisart legt stattdessen fest, welche der beiden Spalten
+    ' auf der GEDRUCKTEN Rechnung als Einzelpreis erscheint (pro Rechnung gespeichert).
+    Private WithEvents cbPreisart As New ComboBox()
     Private txtLieferdatum As New TextBox()
 
     ' --- Elemente für Tab 2 (Kontrolle & Stapel) ---
@@ -79,6 +82,7 @@ Public Class Form1
     Private txtM_Steuer As New TextBox()
     Private txtM_Betrieb As New TextBox()
     Private cbM_Versand As New ComboBox() With {.DropDownStyle = ComboBoxStyle.DropDownList}
+    Private cbM_Preisart As New ComboBox() With {.DropDownStyle = ComboBoxStyle.DropDownList}
 
     Private txtM_Strasse As New TextBox()
     Private txtM_PLZ As New TextBox()
@@ -284,6 +288,18 @@ Public Class Form1
     ' Formatiert einen MwSt-Satz für die Anzeige, z.B. 7,8 -> "7,8%"
     Private Shared Function FmtMwSt(satz As Decimal) As String
         Return satz.ToString("0.0###", Globalization.CultureInfo.InvariantCulture).Replace(".", ",") & "%"
+    End Function
+
+    ' Liefert den Bruttopreis als Anzeigetext - nimmt den exakt gespeicherten Wert, falls
+    ' vorhanden (wichtig, damit ein glatt eingegebener Bruttopreis nicht durch eine
+    ' Rückrechnung krumme Nachkommastellen bekommt). Fehlt er (NULL, z.B. bei Artikeln/
+    ' Positionen aus der Zeit vor dem Netto/Brutto-Umbau), wird er aus Netto berechnet.
+    Private Shared Function BruttoText(bruttoWert As Object, netto As Decimal, mwstProzent As Decimal) As String
+        If bruttoWert IsNot Nothing AndAlso Not DBNull.Value.Equals(bruttoWert) Then
+            Dim b As Decimal = CDec(bruttoWert)
+            If b > 0 Then Return b.ToString("N2")
+        End If
+        Return (netto * (1 + mwstProzent / 100D)).ToString("N2")
     End Function
 
     ' Liest einen MwSt-Satz aus einem Anzeigetext ("7,8%", "7,8", "5,5 %" ...)
@@ -548,7 +564,7 @@ Public Class Form1
         LadeArtikelTabelle()
 
         Using conn = DatenbankManager.HoleVerbindung()
-            Dim daMit As New SQLiteDataAdapter("SELECT id, name FROM mitglieder ORDER BY name", conn)
+            Dim daMit As New SQLiteDataAdapter("SELECT id, name, standard_preisart FROM mitglieder ORDER BY name", conn)
             Dim dtMit As New DataTable()
             daMit.Fill(dtMit)
             chkMitglieder.DataSource = dtMit
@@ -569,7 +585,7 @@ Public Class Form1
             ' Kürzel-Zweck) - die Sortierung nach artikelnummer bleibt aber unverändert, weil
             ' die Nummer genau dafür da ist: häufige Artikel bekommen eine niedrige Nummer und
             ' stehen dadurch oben in der Liste.
-            Dim sql = "SELECT id, REPLACE(REPLACE(CASE WHEN LENGTH(bezeichnung) > 25 THEN SUBSTR(bezeichnung, 1, 25) || '...' ELSE bezeichnung END, char(10), ' '), char(13), '') || ' | ' || printf('%.2f', einzelpreis_netto) || ' € (' || mwst_satz || '%)' AS anzeige, bezeichnung, einzelpreis_netto, mwst_satz FROM artikel ORDER BY artikelnummer"
+            Dim sql = "SELECT id, REPLACE(REPLACE(CASE WHEN LENGTH(bezeichnung) > 25 THEN SUBSTR(bezeichnung, 1, 25) || '...' ELSE bezeichnung END, char(10), ' '), char(13), '') || ' | ' || printf('%.2f', einzelpreis_netto) || ' € (' || mwst_satz || '%)' AS anzeige, bezeichnung, einzelpreis_netto, einzelpreis_brutto, mwst_satz FROM artikel ORDER BY artikelnummer"
             Dim daArt As New SQLiteDataAdapter(sql, conn)
             Dim dtArt As New DataTable()
             daArt.Fill(dtArt)
@@ -589,7 +605,9 @@ Public Class Form1
 
         Dim row As DataRowView = DirectCast(lstArtikel.Items(e.Index), DataRowView)
         Dim bezeichnung As String = row("bezeichnung").ToString()
-        Dim preisText As String = CDec(row("einzelpreis_netto")).ToString("N2") & " €"
+        ' Brutto statt Netto (Nutzer denkt/verhandelt in Brutto) - BruttoText fängt Artikel
+        ' ohne gespeicherten Bruttopreis ab (Altdaten von vor dem Netto/Brutto-Umbau).
+        Dim preisText As String = BruttoText(row("einzelpreis_brutto"), CDec(row("einzelpreis_netto")), CDec(row("mwst_satz"))) & " €"
         Dim mwstText As String = FmtMwSt(CDec(row("mwst_satz")))
 
         Dim istAusgewaehlt As Boolean = (e.State And DrawItemState.Selected) = DrawItemState.Selected
@@ -628,21 +646,23 @@ Public Class Form1
 
     Private Sub BerechneSummenTab1(sender As Object, e As EventArgs)
         Dim netto As Decimal = 0, mwstA As Decimal = 0, mwstB As Decimal = 0
-        Dim isBruttoModus As Boolean = (cbEingabeModus.SelectedIndex = 1)
 
         For Each ctrl As Control In pnlRows.Controls
             If ctrl.Name <> "Zeile" Then Continue For
             Dim pnl As Panel = DirectCast(ctrl, Panel)
 
             Dim txtAnzahl = DirectCast(pnl.Controls.Find("txtAnzahl", True)(0), TextBox)
-            Dim txtPreis = DirectCast(pnl.Controls.Find("txtPreis", True)(0), TextBox)
+            Dim txtPreisNetto = DirectCast(pnl.Controls.Find("txtPreisNetto", True)(0), TextBox)
             Dim cbMwSt = DirectCast(pnl.Controls.Find("cbMwSt", True)(0), ComboBox)
             Dim lblGesamt = DirectCast(pnl.Controls.Find("lblGesamt", True)(0), Label)
             Dim txtText = DirectCast(pnl.Controls.Find("txtText", True)(0), TextBox)
             Dim btnSave As Button = TryCast(pnl.Controls.Find("btnSaveArt", True).FirstOrDefault(), Button)
 
-            Dim anzahl As Decimal = 0, preisEingabe As Decimal = 0
-            Dim isPreisAktiv = ParseBetrag(txtPreis.Text, preisEingabe)
+            Dim anzahl As Decimal = 0, preisNettoEingabe As Decimal = 0
+            ' Netto ist dank der Sync-Logik in ErstelleArtikelZeile immer aktuell, egal ob
+            ' zuletzt ins Netto- oder Brutto-Feld getippt wurde - deshalb reicht hier ein Feld
+            ' für die Berechnung, kein Eingabemodus-Unterschied mehr nötig.
+            Dim isPreisAktiv = ParseBetrag(txtPreisNetto.Text, preisNettoEingabe)
             ParseBetrag(txtAnzahl.Text, anzahl)
 
             Dim zeilenNetto As Decimal = 0
@@ -652,13 +672,8 @@ Public Class Form1
             Dim mwstSatz As Decimal = satzProzent / 100D
 
             If isPreisAktiv Then
-                If isBruttoModus Then
-                    zeilenBrutto = anzahl * preisEingabe
-                    zeilenNetto = zeilenBrutto / (1 + mwstSatz)
-                Else
-                    zeilenNetto = anzahl * preisEingabe
-                    zeilenBrutto = zeilenNetto * (1 + mwstSatz)
-                End If
+                zeilenNetto = anzahl * preisNettoEingabe
+                zeilenBrutto = zeilenNetto * (1 + mwstSatz)
 
                 netto += zeilenNetto
                 If istSatz2 Then
@@ -688,17 +703,6 @@ Public Class Form1
         PruefeEingaben()
     End Sub
 
-    Private Sub CbEingabeModus_Changed(sender As Object, e As EventArgs)
-        If cbEingabeModus.SelectedIndex = 1 Then
-            lblHeaderPreis.Text = "Preis (Brutto)"
-            cbEingabeModus.BackColor = Color.FromArgb(255, 245, 210)
-        Else
-            lblHeaderPreis.Text = "Preis (Netto)"
-            cbEingabeModus.BackColor = CLR_WEISS
-        End If
-        BerechneSummenTab1(Nothing, Nothing)
-    End Sub
-
     Private Sub PruefeEingaben()
         If btnRechnungErstellen Is Nothing Then Return
 
@@ -716,7 +720,7 @@ Public Class Form1
 
             Dim txtAnz = DirectCast(pnl.Controls.Find("txtAnzahl", True)(0), TextBox).Text
             Dim txtBez = DirectCast(pnl.Controls.Find("txtText", True)(0), TextBox).Text
-            Dim txtPrs = DirectCast(pnl.Controls.Find("txtPreis", True)(0), TextBox).Text
+            Dim txtPrs = DirectCast(pnl.Controls.Find("txtPreisNetto", True)(0), TextBox).Text
 
             Dim anzahl As Decimal = 0
             ParseBetrag(txtAnz, anzahl)
@@ -742,7 +746,10 @@ Public Class Form1
                     If reader.Read() Then
                         Dim pnlZeile As Panel = DirectCast(txtBox.Parent.Parent, Panel)
                         txtBox.Text = reader("bezeichnung").ToString()
-                        DirectCast(pnlZeile.Controls.Find("txtPreis", True)(0), TextBox).Text = CDec(reader("einzelpreis_netto")).ToString("N2")
+                        ' Nur Netto setzen und danach den MwSt-Satz - die Sync-Handler in
+                        ' ErstelleArtikelZeile rechnen Brutto dann automatisch passend mit,
+                        ' kein manuelles Setzen von txtPreisBrutto nötig.
+                        DirectCast(pnlZeile.Controls.Find("txtPreisNetto", True)(0), TextBox).Text = CDec(reader("einzelpreis_netto")).ToString("N2")
                         DirectCast(pnlZeile.Controls.Find("cbMwSt", True)(0), ComboBox).Text = FmtMwSt(CDec(reader("mwst_satz")))
                         txtBox.SelectionStart = txtBox.Text.Length
                     End If
@@ -757,8 +764,11 @@ Public Class Form1
         Dim anzahlErstellt As Integer = 0
 
         ' --- 1. Alle Positionszeilen VOR dem Schreiben einsammeln und validieren ---
-        Dim isBruttoModus As Boolean = (cbEingabeModus.SelectedIndex = 1)
-        Dim positionen As New List(Of (bez As String, anzahl As Decimal, nettoPreis As Decimal, mwst As Decimal))
+        ' Netto- und Brutto-Feld sind durch die Sync-Logik in ErstelleArtikelZeile immer
+        ' beide aktuell und stimmen zusammen mit dem gewählten MwSt-Satz überein - deshalb
+        ' werden hier einfach beide so übernommen, wie sie gerade angezeigt werden, ohne
+        ' Rückrechnung (das vermeidet die Rundungs-Drift, um die es ja gerade ging).
+        Dim positionen As New List(Of (bez As String, anzahl As Decimal, nettoPreis As Decimal, bruttoPreis As Decimal, mwst As Decimal))
 
         For Each ctrl As Control In pnlRows.Controls
             If ctrl.Name <> "Zeile" Then Continue For
@@ -771,14 +781,18 @@ Public Class Form1
             Dim bez As String = DirectCast(pnl.Controls.Find("txtText", True)(0), TextBox).Text
             If String.IsNullOrWhiteSpace(bez) Then Continue For
 
-            Dim preisText As String = DirectCast(pnl.Controls.Find("txtPreis", True)(0), TextBox).Text
-            Dim prsEingabe As Decimal = 0
-            If Not ParseBetrag(preisText, prsEingabe) Then
-                MessageBox.Show($"Die Position '{bez}' hat keinen gültigen Preis ('{preisText}')." & vbCrLf &
+            Dim preisNettoText As String = DirectCast(pnl.Controls.Find("txtPreisNetto", True)(0), TextBox).Text
+            Dim nettoPreis As Decimal = 0
+            If Not ParseBetrag(preisNettoText, nettoPreis) Then
+                MessageBox.Show($"Die Position '{bez}' hat keinen gültigen Preis ('{preisNettoText}')." & vbCrLf &
                                 "Es wurde KEINE Rechnung erstellt. Bitte korrigiere die Eingabe.",
                                 "Ungültiger Preis", MessageBoxButtons.OK, MessageBoxIcon.Warning)
                 Return
             End If
+
+            Dim preisBruttoText As String = DirectCast(pnl.Controls.Find("txtPreisBrutto", True)(0), TextBox).Text
+            Dim bruttoPreis As Decimal = 0
+            ParseBetrag(preisBruttoText, bruttoPreis)
 
             Dim cbMwStZeile = DirectCast(pnl.Controls.Find("cbMwSt", True)(0), ComboBox)
             Dim mwstProzent As Decimal = ParseMwSt(cbMwStZeile.Text)
@@ -789,12 +803,7 @@ Public Class Form1
                 Return
             End If
 
-            Dim nettoPreis As Decimal = prsEingabe
-            If isBruttoModus Then
-                nettoPreis = prsEingabe / (1 + (mwstProzent / 100D))
-            End If
-
-            positionen.Add((bez, anzahl, nettoPreis, mwstProzent))
+            positionen.Add((bez, anzahl, nettoPreis, bruttoPreis, mwstProzent))
         Next
 
         If positionen.Count = 0 Then
@@ -817,22 +826,26 @@ Public Class Form1
                     Dim lieferdatum As String = txtLieferdatum.Text.Trim()
                     If String.IsNullOrWhiteSpace(lieferdatum) Then lieferdatum = heutigesDatum
 
+                    Dim preisart As String = If(cbPreisart.SelectedIndex = 1, "Brutto", "Netto")
+
                     For Each item As Object In chkMitglieder.CheckedItems
                         Dim mitgliedId As Integer = CInt(DirectCast(item, DataRowView)("id"))
 
-                        Dim cmdRe As New SQLiteCommand("INSERT INTO rechnungen (rechnungsnummer, datum, lieferdatum, mitglied_id, status) VALUES (@nr, @dat, @lief, @mid, 'Erfasst'); SELECT last_insert_rowid();", conn, trans)
+                        Dim cmdRe As New SQLiteCommand("INSERT INTO rechnungen (rechnungsnummer, datum, lieferdatum, mitglied_id, status, preisart) VALUES (@nr, @dat, @lief, @mid, 'Erfasst', @preisart); SELECT last_insert_rowid();", conn, trans)
                         cmdRe.Parameters.AddWithValue("@nr", aktuelleReNr.ToString())
                         cmdRe.Parameters.AddWithValue("@dat", heutigesDatum)
                         cmdRe.Parameters.AddWithValue("@lief", lieferdatum)
                         cmdRe.Parameters.AddWithValue("@mid", mitgliedId)
+                        cmdRe.Parameters.AddWithValue("@preisart", preisart)
                         Dim neueReId As Integer = CInt(cmdRe.ExecuteScalar())
 
                         For Each pos In positionen
-                            Dim cmdPos As New SQLiteCommand("INSERT INTO rechnungspositionen (rechnung_id, artikel_bezeichnung, anzahl, einzelpreis, mwst_satz) VALUES (@rid, @bez, @anz, @prs, @mwst)", conn, trans)
+                            Dim cmdPos As New SQLiteCommand("INSERT INTO rechnungspositionen (rechnung_id, artikel_bezeichnung, anzahl, einzelpreis, einzelpreis_brutto, mwst_satz) VALUES (@rid, @bez, @anz, @prs, @prsBrutto, @mwst)", conn, trans)
                             cmdPos.Parameters.AddWithValue("@rid", neueReId)
                             cmdPos.Parameters.AddWithValue("@bez", pos.bez)
                             cmdPos.Parameters.AddWithValue("@anz", pos.anzahl)
                             cmdPos.Parameters.AddWithValue("@prs", pos.nettoPreis)
+                            cmdPos.Parameters.AddWithValue("@prsBrutto", pos.bruttoPreis)
                             cmdPos.Parameters.AddWithValue("@mwst", pos.mwst)
                             cmdPos.ExecuteNonQuery()
                         Next
@@ -1340,7 +1353,10 @@ Public Class Form1
     ' =========================================================================
     Private Sub LadeArtikelTabelle()
         Using conn = DatenbankManager.HoleVerbindung()
-            Dim da = New SQLiteDataAdapter("SELECT artikelnummer AS 'Nr', bezeichnung AS 'Beschreibung', mwst_satz AS 'MwSt (%)', einzelpreis_netto AS 'Einzelpreis (€)' FROM artikel ORDER BY artikelnummer", conn)
+            ' Zeigt Brutto statt Netto (Nutzer denkt/verhandelt in Brutto) - COALESCE fängt
+            ' Artikel ohne gespeicherten Bruttopreis ab (z.B. noch nicht bearbeitete Altdaten
+            ' von vor dem Netto/Brutto-Umbau).
+            Dim da = New SQLiteDataAdapter("SELECT artikelnummer AS 'Nr', bezeichnung AS 'Beschreibung', mwst_satz AS 'MwSt (%)', COALESCE(einzelpreis_brutto, einzelpreis_netto * (1 + mwst_satz / 100.0)) AS 'Einzelpreis (Brutto)' FROM artikel ORDER BY artikelnummer", conn)
             Dim dt = New DataTable()
             da.Fill(dt)
             dgvArtikelVerwaltung.DataSource = dt
@@ -1373,10 +1389,10 @@ Public Class Form1
             dgvArtikelVerwaltung.Columns("MwSt (%)").DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter
         End If
 
-        If dgvArtikelVerwaltung.Columns.Contains("Einzelpreis (€)") Then
-            dgvArtikelVerwaltung.Columns("Einzelpreis (€)").Width = 120
-            dgvArtikelVerwaltung.Columns("Einzelpreis (€)").DefaultCellStyle.Format = "N2"
-            dgvArtikelVerwaltung.Columns("Einzelpreis (€)").DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight
+        If dgvArtikelVerwaltung.Columns.Contains("Einzelpreis (Brutto)") Then
+            dgvArtikelVerwaltung.Columns("Einzelpreis (Brutto)").Width = 140
+            dgvArtikelVerwaltung.Columns("Einzelpreis (Brutto)").DefaultCellStyle.Format = "N2"
+            dgvArtikelVerwaltung.Columns("Einzelpreis (Brutto)").DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight
         End If
     End Sub
 
@@ -1389,6 +1405,24 @@ Public Class Form1
     ' unverändert übernommen, nur nicht mehr an ein bestimmtes Klick-Ereignis gebunden.
     Private Sub BearbeiteArtikelZeile(row As DataGridViewRow)
         Dim artNr = row.Cells("Nr").Value.ToString()
+
+        ' Frisch aus der DB laden statt aus der Grid-Zeile: die Tabelle zeigt seit dem
+        ' Netto/Brutto-Umbau nur noch Brutto (berechnet), der Netto-Wert steht dort gar nicht
+        ' mehr drin - für die zwei Bearbeiten-Felder werden beide echten Werte gebraucht.
+        Dim bezeichnungAktuell As String = "", nettoAktuell As Decimal = 0, mwstAktuell As Decimal = 0
+        Dim bruttoWertAktuell As Object = Nothing
+        Using conn0 = DatenbankManager.HoleVerbindung()
+            Dim cmd0 As New SQLiteCommand("SELECT bezeichnung, einzelpreis_netto, einzelpreis_brutto, mwst_satz FROM artikel WHERE artikelnummer = @nr", conn0)
+            cmd0.Parameters.AddWithValue("@nr", artNr)
+            Using r0 = cmd0.ExecuteReader()
+                If r0.Read() Then
+                    bezeichnungAktuell = r0("bezeichnung").ToString()
+                    nettoAktuell = CDec(r0("einzelpreis_netto"))
+                    bruttoWertAktuell = r0("einzelpreis_brutto")
+                    mwstAktuell = CDec(r0("mwst_satz"))
+                End If
+            End Using
+        End Using
 
         Using editorForm As New Form With {
             .Text = $"Artikel {artNr} bearbeiten",
@@ -1415,30 +1449,67 @@ Public Class Form1
             pnlBottom.Controls.AddRange({btnOK, btnCancel, btnDelete})
 
             Dim txtDesc As New TextBox With {
-                .Multiline = True, .Text = row.Cells("Beschreibung").Value.ToString(),
+                .Multiline = True, .Text = bezeichnungAktuell,
                 .Font = New Font("Arial", 12), .ScrollBars = ScrollBars.Vertical,
                 .Width = 479, .Height = 350, .Location = New Point(20, 10),
                 .BorderStyle = BorderStyle.FixedSingle, .BackColor = CLR_WEISS
             }
 
+            ' Zwei synchronisierte Preisfelder wie in der Rechnungserfassung - welches Feld
+            ' zuletzt getippt wird, gilt als die "echte" Zahl, das andere wird live mitgerechnet.
             Dim pnlWerte As New Panel With {.Location = New Point(20, txtDesc.Bottom + 15), .Size = New Size(479, 50)}
-            Dim lblPreis As New Label With {.Text = "Preis (€):", .Font = FONT_NORMAL, .Location = New Point(0, 5), .AutoSize = True, .ForeColor = CLR_TEXT_GRAU}
-            Dim txtPreis As New TextBox With {
-                .Text = row.Cells("Einzelpreis (€)").Value.ToString(), .Font = New Font("Arial", 12),
-                .Location = New Point(80, 2), .Width = 120, .TextAlign = HorizontalAlignment.Right,
+            Dim lblNetto As New Label With {.Text = "Netto (€):", .Font = FONT_NORMAL, .Location = New Point(0, 5), .AutoSize = True, .ForeColor = CLR_TEXT_GRAU}
+            Dim txtPreisNetto As New TextBox With {
+                .Text = nettoAktuell.ToString("N2"), .Font = New Font("Arial", 12),
+                .Location = New Point(65, 2), .Width = 75, .TextAlign = HorizontalAlignment.Right,
                 .BorderStyle = BorderStyle.FixedSingle, .BackColor = CLR_WEISS
             }
-            Dim lblMwSt As New Label With {.Text = "MwSt:", .Font = FONT_NORMAL, .Location = New Point(230, 5), .AutoSize = True, .ForeColor = CLR_TEXT_GRAU}
+            Dim lblBrutto As New Label With {.Text = "Brutto (€):", .Font = FONT_NORMAL, .Location = New Point(150, 5), .AutoSize = True, .ForeColor = CLR_TEXT_GRAU}
+            Dim txtPreisBrutto As New TextBox With {
+                .Text = BruttoText(bruttoWertAktuell, nettoAktuell, mwstAktuell), .Font = New Font("Arial", 12),
+                .Location = New Point(215, 2), .Width = 75, .TextAlign = HorizontalAlignment.Right,
+                .BorderStyle = BorderStyle.FixedSingle, .BackColor = CLR_WEISS
+            }
+            Dim lblMwSt As New Label With {.Text = "MwSt:", .Font = FONT_NORMAL, .Location = New Point(300, 5), .AutoSize = True, .ForeColor = CLR_TEXT_GRAU}
             Dim cbMwSt As New ComboBox With {
-                .Font = New Font("Arial", 12), .Location = New Point(290, 2),
+                .Font = New Font("Arial", 12), .Location = New Point(350, 2),
                 .Width = 80, .DropDownStyle = ComboBoxStyle.DropDownList,
                 .FlatStyle = FlatStyle.Flat, .BackColor = CLR_WEISS
             }
             cbMwSt.Items.AddRange({FmtMwSt(mwstSatz1), FmtMwSt(mwstSatz2)})
-            Dim aktuellerArtSatz As Decimal = 0
-            Try : aktuellerArtSatz = CDec(row.Cells("MwSt (%)").Value) : Catch : End Try
-            cbMwSt.SelectedIndex = If(Math.Abs(aktuellerArtSatz - mwstSatz2) < 0.01D, 1, 0)
-            pnlWerte.Controls.AddRange({lblPreis, txtPreis, lblMwSt, cbMwSt})
+            cbMwSt.SelectedIndex = If(Math.Abs(mwstAktuell - mwstSatz2) < 0.01D, 1, 0)
+            pnlWerte.Controls.AddRange({lblNetto, txtPreisNetto, lblBrutto, txtPreisBrutto, lblMwSt, cbMwSt})
+
+            Dim aktualisiertGerade As Boolean = False
+            AddHandler txtPreisNetto.TextChanged, Sub()
+                                                       If aktualisiertGerade Then Return
+                                                       Dim netto As Decimal = 0
+                                                       If ParseBetrag(txtPreisNetto.Text, netto) Then
+                                                           aktualisiertGerade = True
+                                                           Dim satz As Decimal = ParseMwSt(cbMwSt.Text)
+                                                           txtPreisBrutto.Text = (netto * (1 + satz / 100D)).ToString("N2")
+                                                           aktualisiertGerade = False
+                                                       End If
+                                                   End Sub
+            AddHandler txtPreisBrutto.TextChanged, Sub()
+                                                        If aktualisiertGerade Then Return
+                                                        Dim brutto As Decimal = 0
+                                                        If ParseBetrag(txtPreisBrutto.Text, brutto) Then
+                                                            aktualisiertGerade = True
+                                                            Dim satz As Decimal = ParseMwSt(cbMwSt.Text)
+                                                            txtPreisNetto.Text = (brutto / (1 + satz / 100D)).ToString("N2")
+                                                            aktualisiertGerade = False
+                                                        End If
+                                                    End Sub
+            AddHandler cbMwSt.SelectedIndexChanged, Sub()
+                                                         Dim netto As Decimal = 0
+                                                         If ParseBetrag(txtPreisNetto.Text, netto) Then
+                                                             aktualisiertGerade = True
+                                                             Dim satz As Decimal = ParseMwSt(cbMwSt.Text)
+                                                             txtPreisBrutto.Text = (netto * (1 + satz / 100D)).ToString("N2")
+                                                             aktualisiertGerade = False
+                                                         End If
+                                                     End Sub
 
             editorForm.Controls.AddRange({txtDesc, pnlWerte, pnlBottom})
             editorForm.CancelButton = btnCancel
@@ -1457,12 +1528,15 @@ Public Class Form1
 
             Dim res = editorForm.ShowDialog()
             If res = DialogResult.OK Then
-                Dim neuerPreis As Decimal
-                ParseBetrag(txtPreis.Text, neuerPreis)
+                Dim neuerNetto As Decimal = 0
+                ParseBetrag(txtPreisNetto.Text, neuerNetto)
+                Dim neuerBrutto As Decimal = 0
+                ParseBetrag(txtPreisBrutto.Text, neuerBrutto)
                 Using conn = DatenbankManager.HoleVerbindung()
-                    Dim cmd As New SQLiteCommand("UPDATE artikel SET bezeichnung = @bez, einzelpreis_netto = @prs, mwst_satz = @mwst WHERE artikelnummer = @nr", conn)
+                    Dim cmd As New SQLiteCommand("UPDATE artikel SET bezeichnung = @bez, einzelpreis_netto = @prs, einzelpreis_brutto = @prsBrutto, mwst_satz = @mwst WHERE artikelnummer = @nr", conn)
                     cmd.Parameters.AddWithValue("@bez", txtDesc.Text)
-                    cmd.Parameters.AddWithValue("@prs", neuerPreis)
+                    cmd.Parameters.AddWithValue("@prs", neuerNetto)
+                    cmd.Parameters.AddWithValue("@prsBrutto", neuerBrutto)
                     cmd.Parameters.AddWithValue("@mwst", ParseMwSt(cbMwSt.Text))
                     cmd.Parameters.AddWithValue("@nr", artNr)
                     cmd.ExecuteNonQuery()
@@ -1591,7 +1665,7 @@ Public Class Form1
                 ws.Cell(1, 1).Value = "Nr"
                 ws.Cell(1, 2).Value = "Beschreibung"
                 ws.Cell(1, 3).Value = "MwSt (%)"
-                ws.Cell(1, 4).Value = "Einzelpreis (€)"
+                ws.Cell(1, 4).Value = "Einzelpreis (Brutto, €)"
                 ws.Range("A1:D1").Style.Font.Bold = True
 
                 Dim rowIdx As Integer = 2
@@ -1646,14 +1720,18 @@ Public Class Form1
 
                                 Dim mwst As Decimal = ParseMwSt(mwstStr)
                                 If Math.Abs(mwst - mwstSatz1) < 0.01D OrElse Math.Abs(mwst - mwstSatz2) < 0.01D Then
-                                    Dim preis As Decimal = 0
-                                    ParseBetrag(prsStr, preis)
+                                    ' Spalte 4 enthält seit dem Netto/Brutto-Umbau den Bruttopreis
+                                    ' (so wird er auch exportiert) - Netto wird daraus berechnet.
+                                    Dim preisBrutto As Decimal = 0
+                                    ParseBetrag(prsStr, preisBrutto)
+                                    Dim preisNetto As Decimal = preisBrutto / (1 + mwst / 100D)
 
-                                    Dim cmdIns = New SQLiteCommand("INSERT INTO artikel (artikelnummer, bezeichnung, mwst_satz, einzelpreis_netto, einheit) VALUES (@nr, @bez, @mwst, @prs, 'C62')", conn, trans)
+                                    Dim cmdIns = New SQLiteCommand("INSERT INTO artikel (artikelnummer, bezeichnung, mwst_satz, einzelpreis_netto, einzelpreis_brutto, einheit) VALUES (@nr, @bez, @mwst, @prs, @prsBrutto, 'C62')", conn, trans)
                                     cmdIns.Parameters.AddWithValue("@nr", nr.PadLeft(3, "0"c))
                                     cmdIns.Parameters.AddWithValue("@bez", bez)
                                     cmdIns.Parameters.AddWithValue("@mwst", mwst)
-                                    cmdIns.Parameters.AddWithValue("@prs", preis)
+                                    cmdIns.Parameters.AddWithValue("@prs", preisNetto)
+                                    cmdIns.Parameters.AddWithValue("@prsBrutto", preisBrutto)
                                     cmdIns.ExecuteNonQuery()
                                     count += 1
                                 End If
@@ -1697,6 +1775,8 @@ Public Class Form1
                         txtM_Betrieb.Text = reader("betriebsnummer").ToString()
                         txtM_Email.Text = reader("email").ToString()
                         cbM_Versand.Text = reader("versandart").ToString()
+                        Dim standardPreisart As String = reader("standard_preisart").ToString()
+                        cbM_Preisart.Text = If(String.IsNullOrWhiteSpace(standardPreisart), "Netto", standardPreisart)
                     End If
                 End Using
             End Using
@@ -1709,6 +1789,7 @@ Public Class Form1
         txtM_Nr.Clear() : txtM_Name.Clear() : txtM_Strasse.Clear() : txtM_PLZ.Clear()
         txtM_Ort.Clear() : txtM_Land.Text = "DE" : txtM_Steuer.Clear() : txtM_Betrieb.Clear()
         txtM_Email.Clear() : cbM_Versand.SelectedIndex = -1
+        cbM_Preisart.SelectedIndex = 0
         txtM_Nr.Focus()
     End Sub
 
@@ -1723,9 +1804,9 @@ Public Class Form1
                 Dim cmd As New SQLiteCommand(conn)
 
                 If aktuelleMitgliedId = 0 Then
-                    cmd.CommandText = "INSERT INTO mitglieder (mitgliedsnummer, name, strasse, plz, ort, land_code, steuernummer, betriebsnummer, email, versandart) VALUES (@nr, @nam, @str, @plz, @ort, @lan, @steu, @bet, @eml, @ver)"
+                    cmd.CommandText = "INSERT INTO mitglieder (mitgliedsnummer, name, strasse, plz, ort, land_code, steuernummer, betriebsnummer, email, versandart, standard_preisart) VALUES (@nr, @nam, @str, @plz, @ort, @lan, @steu, @bet, @eml, @ver, @prsart)"
                 Else
-                    cmd.CommandText = "UPDATE mitglieder SET mitgliedsnummer=@nr, name=@nam, strasse=@str, plz=@plz, ort=@ort, land_code=@lan, steuernummer=@steu, betriebsnummer=@bet, email=@eml, versandart=@ver WHERE id=@id"
+                    cmd.CommandText = "UPDATE mitglieder SET mitgliedsnummer=@nr, name=@nam, strasse=@str, plz=@plz, ort=@ort, land_code=@lan, steuernummer=@steu, betriebsnummer=@bet, email=@eml, versandart=@ver, standard_preisart=@prsart WHERE id=@id"
                     cmd.Parameters.AddWithValue("@id", aktuelleMitgliedId)
                 End If
 
@@ -1739,6 +1820,7 @@ Public Class Form1
                 cmd.Parameters.AddWithValue("@bet", txtM_Betrieb.Text.Trim())
                 cmd.Parameters.AddWithValue("@eml", txtM_Email.Text.Trim())
                 cmd.Parameters.AddWithValue("@ver", cbM_Versand.Text)
+                cmd.Parameters.AddWithValue("@prsart", If(cbM_Preisart.SelectedIndex = 1, "Brutto", "Netto"))
                 cmd.ExecuteNonQuery()
             End Using
 
@@ -2327,15 +2409,17 @@ Public Class Form1
             .TextAlign = ContentAlignment.MiddleLeft
         }
 
-        cbEingabeModus.Location = New Point(210, 7)
-        cbEingabeModus.Size = New Size(210, 30)
-        cbEingabeModus.DropDownStyle = ComboBoxStyle.DropDownList
-        cbEingabeModus.FlatStyle = FlatStyle.Flat
-        cbEingabeModus.BackColor = CLR_WEISS
-        cbEingabeModus.Font = FONT_NORMAL
-        cbEingabeModus.Items.AddRange({"Preis-Eingabe: NETTO", "Preis-Eingabe: BRUTTO"})
-        cbEingabeModus.SelectedIndex = 0
-        AddHandler cbEingabeModus.SelectedIndexChanged, AddressOf CbEingabeModus_Changed
+        ' War früher "Preis-Eingabe: NETTO/BRUTTO" (globale Eingabeart) - jetzt legt dieselbe
+        ' Stelle fest, welche Preisspalte auf der GEDRUCKTEN Rechnung erscheint. Wird beim
+        ' Ankreuzen eines Kunden aus dessen Stammdaten vorbelegt (siehe ChkMitglieder_ItemCheck).
+        cbPreisart.Location = New Point(210, 7)
+        cbPreisart.Size = New Size(210, 30)
+        cbPreisart.DropDownStyle = ComboBoxStyle.DropDownList
+        cbPreisart.FlatStyle = FlatStyle.Flat
+        cbPreisart.BackColor = CLR_WEISS
+        cbPreisart.Font = FONT_NORMAL
+        cbPreisart.Items.AddRange({"Rechnung zeigt: NETTO", "Rechnung zeigt: BRUTTO"})
+        cbPreisart.SelectedIndex = 0
 
         btnRechnungErstellen = New Button With {
             .Text = "RECHNUNG ERSTELLEN",
@@ -2351,7 +2435,7 @@ Public Class Form1
         btnRechnungErstellen.FlatAppearance.BorderSize = 0
         AddHandler btnRechnungErstellen.Click, AddressOf SpeichereRechnung
 
-        pnlMTop.Controls.AddRange({lblEditor, cbEingabeModus, btnRechnungErstellen})
+        pnlMTop.Controls.AddRange({lblEditor, cbPreisart, btnRechnungErstellen})
 
         ' Spalten-Header
         Dim headerWidth As Integer = pnlM.Width - 20
@@ -2365,18 +2449,13 @@ Public Class Form1
         Dim lblHMenge As New Label With {.Text = "Menge", .Location = New Point(8, 7), .AutoSize = True, .Font = New Font("Segoe UI", 8.5F, FontStyle.Bold), .ForeColor = CLR_WEISS}
         Dim lblHBez As New Label With {.Text = "Beschreibung", .Location = New Point(62, 7), .AutoSize = True, .Font = New Font("Segoe UI", 8.5F, FontStyle.Bold), .ForeColor = CLR_WEISS}
 
-        lblHeaderPreis.Text = "Preis (Netto)"
-        lblHeaderPreis.Location = New Point(headerWidth - 372, 7)
-        lblHeaderPreis.AutoSize = False
-        lblHeaderPreis.Width = 80
-        lblHeaderPreis.TextAlign = ContentAlignment.TopRight
-        lblHeaderPreis.Font = New Font("Segoe UI", 8.5F, FontStyle.Bold)
-        lblHeaderPreis.ForeColor = CLR_WEISS
-        lblHeaderPreis.Anchor = AnchorStyles.Top Or AnchorStyles.Right
-
+        ' Zwei eigene Preis-Spalten statt einer umschaltbaren - Positionen spiegeln exakt die
+        ' Felder in ErstelleArtikelZeile (rahmenWidth dort ≈ headerWidth hier).
+        Dim lblHNetto As New Label With {.Text = "Netto", .Location = New Point(headerWidth - 422, 7), .AutoSize = False, .Width = 62, .TextAlign = ContentAlignment.TopRight, .Font = New Font("Segoe UI", 8.5F, FontStyle.Bold), .ForeColor = CLR_WEISS, .Anchor = AnchorStyles.Top Or AnchorStyles.Right}
+        Dim lblHBrutto As New Label With {.Text = "Brutto", .Location = New Point(headerWidth - 354, 7), .AutoSize = False, .Width = 62, .TextAlign = ContentAlignment.TopRight, .Font = New Font("Segoe UI", 8.5F, FontStyle.Bold), .ForeColor = CLR_WEISS, .Anchor = AnchorStyles.Top Or AnchorStyles.Right}
         Dim lblHMwSt As New Label With {.Text = "MwSt", .Location = New Point(headerWidth - 282, 7), .AutoSize = False, .Width = 60, .TextAlign = ContentAlignment.TopRight, .Font = New Font("Segoe UI", 8.5F, FontStyle.Bold), .ForeColor = CLR_WEISS, .Anchor = AnchorStyles.Top Or AnchorStyles.Right}
         Dim lblHGes As New Label With {.Text = "Gesamt (Brutto)", .Location = New Point(headerWidth - 212, 7), .AutoSize = False, .Width = 100, .TextAlign = ContentAlignment.TopRight, .Font = New Font("Segoe UI", 8.5F, FontStyle.Bold), .ForeColor = CLR_WEISS, .Anchor = AnchorStyles.Top Or AnchorStyles.Right}
-        pnlTblHeader.Controls.AddRange({lblHMenge, lblHBez, lblHeaderPreis, lblHMwSt, lblHGes})
+        pnlTblHeader.Controls.AddRange({lblHMenge, lblHBez, lblHNetto, lblHBrutto, lblHMwSt, lblHGes})
 
         ' Zeilen-Container
         pnlRows.Location = New Point(10, 80)
@@ -2468,7 +2547,7 @@ Public Class Form1
         pnlRows.ResumeLayout()
     End Sub
 
-    Private Function ErstelleArtikelZeile(anzahl As String, text As String, preis As String, mwst As String) As Panel
+    Private Function ErstelleArtikelZeile(anzahl As String, text As String, preisNetto As String, preisBrutto As String, mwst As String) As Panel
         Dim w As Integer = pnlRows.ClientSize.Width - 10
         If w < 500 Then w = 680
 
@@ -2508,7 +2587,7 @@ Public Class Form1
         Dim txtText As New TextBox With {
             .Name = "txtText", .Text = text,
             .Location = New Point(62, 10),
-            .Width = rahmenWidth - 432,
+            .Width = rahmenWidth - 494,
             .Multiline = True, .Height = 48,
             .ScrollBars = ScrollBars.None,
             .Font = FONT_NORMAL,
@@ -2517,10 +2596,23 @@ Public Class Form1
             .Anchor = AnchorStyles.Top Or AnchorStyles.Left Or AnchorStyles.Right
         }
 
-        Dim txtPreis As New TextBox With {
-            .Name = "txtPreis", .Text = preis,
-            .Location = New Point(rahmenWidth - 352, 22),
-            .Width = 64, .TextAlign = HorizontalAlignment.Right,
+        ' Zwei Preisfelder statt einem - welches auch immer zuletzt getippt wird, gilt als
+        ' die "echte" Zahl, das jeweils andere wird live nachgerechnet (siehe Sync-Handler
+        ' unten). Kein globaler Eingabemodus mehr nötig.
+        Dim txtPreisNetto As New TextBox With {
+            .Name = "txtPreisNetto", .Text = preisNetto,
+            .Location = New Point(rahmenWidth - 422, 22),
+            .Width = 62, .TextAlign = HorizontalAlignment.Right,
+            .Font = FONT_NORMAL,
+            .BorderStyle = BorderStyle.FixedSingle,
+            .BackColor = CLR_WEISS,
+            .Anchor = AnchorStyles.Top Or AnchorStyles.Right
+        }
+
+        Dim txtPreisBrutto As New TextBox With {
+            .Name = "txtPreisBrutto", .Text = preisBrutto,
+            .Location = New Point(rahmenWidth - 354, 22),
+            .Width = 62, .TextAlign = HorizontalAlignment.Right,
             .Font = FONT_NORMAL,
             .BorderStyle = BorderStyle.FixedSingle,
             .BackColor = CLR_WEISS,
@@ -2549,7 +2641,46 @@ Public Class Form1
             .Anchor = AnchorStyles.Top Or AnchorStyles.Right
         }
 
-        pnlRahmen.Controls.AddRange({txtAnzahl, txtText, txtPreis, cbMwSt, lblGesamt})
+        pnlRahmen.Controls.AddRange({txtAnzahl, txtText, txtPreisNetto, txtPreisBrutto, cbMwSt, lblGesamt})
+
+        ' Sync-Logik: Tippen in ein Feld rechnet automatisch das andere passend zum gewählten
+        ' MwSt-Satz um. "aktualisiertGerade" verhindert eine Endlosschleife (Feld A ändert
+        ' Feld B, das würde ohne die Sperre wieder Feld A auslösen usw.).
+        Dim aktualisiertGerade As Boolean = False
+
+        AddHandler txtPreisNetto.TextChanged, Sub()
+                                                   If aktualisiertGerade Then Return
+                                                   Dim netto As Decimal = 0
+                                                   If ParseBetrag(txtPreisNetto.Text, netto) Then
+                                                       aktualisiertGerade = True
+                                                       Dim satz As Decimal = ParseMwSt(cbMwSt.Text)
+                                                       txtPreisBrutto.Text = (netto * (1 + satz / 100D)).ToString("N2")
+                                                       aktualisiertGerade = False
+                                                   End If
+                                               End Sub
+
+        AddHandler txtPreisBrutto.TextChanged, Sub()
+                                                    If aktualisiertGerade Then Return
+                                                    Dim brutto As Decimal = 0
+                                                    If ParseBetrag(txtPreisBrutto.Text, brutto) Then
+                                                        aktualisiertGerade = True
+                                                        Dim satz As Decimal = ParseMwSt(cbMwSt.Text)
+                                                        txtPreisNetto.Text = (brutto / (1 + satz / 100D)).ToString("N2")
+                                                        aktualisiertGerade = False
+                                                    End If
+                                                End Sub
+
+        ' Ändert sich der MwSt-Satz, bleibt Netto die feste Bezugsgröße und Brutto wird
+        ' neu berechnet (Netto ist ohnehin die intern gespeicherte Basis für die Steuer).
+        AddHandler cbMwSt.SelectedIndexChanged, Sub()
+                                                     Dim netto As Decimal = 0
+                                                     If ParseBetrag(txtPreisNetto.Text, netto) Then
+                                                         aktualisiertGerade = True
+                                                         Dim satz As Decimal = ParseMwSt(cbMwSt.Text)
+                                                         txtPreisBrutto.Text = (netto * (1 + satz / 100D)).ToString("N2")
+                                                         aktualisiertGerade = False
+                                                     End If
+                                                 End Sub
 
         ' Speichern-Button (Pfeil nach links = in Stamm übernehmen)
         Dim btnSaveArt As New Button With {
@@ -2581,7 +2712,8 @@ Public Class Form1
         btnDel.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 220, 220)
 
         AddHandler txtAnzahl.TextChanged, AddressOf BerechneSummenTab1
-        AddHandler txtPreis.TextChanged, AddressOf BerechneSummenTab1
+        AddHandler txtPreisNetto.TextChanged, AddressOf BerechneSummenTab1
+        AddHandler txtPreisBrutto.TextChanged, AddressOf BerechneSummenTab1
         AddHandler cbMwSt.SelectedIndexChanged, AddressOf BerechneSummenTab1
         AddHandler txtText.TextChanged, AddressOf TxtText_TextChanged
         AddHandler txtText.TextChanged, AddressOf BerechneSummenTab1
@@ -2865,8 +2997,12 @@ Public Class Form1
         Dim pnlRight As New Panel With {.Dock = DockStyle.Fill, .Padding = New Padding(0, 8, 12, 12), .AutoScroll = True}
 
         cbM_Versand.Items.AddRange({"Beides", "E-Mail", "Post"})
+        cbM_Preisart.Items.AddRange({"Netto", "Brutto"})
 
-        Dim gbStamm As New GroupBox With {.Text = "1. Stammdaten", .Location = New Point(10, 40), .Size = New Size(720, 160)}
+        ' Höhe von 160 auf 215 vergrößert für die dritte Zeile (Standard-Rechnungsart) -
+        ' alle nachfolgenden Elemente (gbAdresse, pnlBtnBar) entsprechend um 55px verschoben,
+        ' derselbe Abstand wie vorher jeweils beibehalten.
+        Dim gbStamm As New GroupBox With {.Text = "1. Stammdaten", .Location = New Point(10, 40), .Size = New Size(720, 215)}
         StyleGroupBox(gbStamm)
         ErstelleFeld(gbStamm, "Kunden-Nr.*", txtM_Nr, 20, 28, 150)
         ErstelleFeld(gbStamm, "Firma / Name*", txtM_Name, 190, 28, 310)
@@ -2874,8 +3010,9 @@ Public Class Form1
         ErstelleFeld(gbStamm, "E-Mail Adresse", txtM_Email, 20, 90, 310)
         ErstelleFeld(gbStamm, "Steuernummer", txtM_Steuer, 350, 90, 150)
         ErstelleFeld(gbStamm, "Betriebsnummer", txtM_Betrieb, 520, 90, 160)
+        ErstelleFeld(gbStamm, "Rechnungsart (Standard)", cbM_Preisart, 20, 152, 160)
 
-        Dim gbAdresse As New GroupBox With {.Text = "2. Rechnungsadresse", .Location = New Point(10, 210), .Size = New Size(720, 100)}
+        Dim gbAdresse As New GroupBox With {.Text = "2. Rechnungsadresse", .Location = New Point(10, 265), .Size = New Size(720, 100)}
         StyleGroupBox(gbAdresse)
         ErstelleFeld(gbAdresse, "Straße & Hausnummer", txtM_Strasse, 20, 28, 310)
         ErstelleFeld(gbAdresse, "PLZ", txtM_PLZ, 350, 28, 80)
@@ -2883,7 +3020,7 @@ Public Class Form1
         ErstelleFeld(gbAdresse, "Land", txtM_Land, 620, 28, 60)
         txtM_Land.Text = "DE"
 
-        Dim pnlBtnBar As New Panel With {.Location = New Point(10, 330), .Size = New Size(720, 50), .BackColor = Color.Transparent}
+        Dim pnlBtnBar As New Panel With {.Location = New Point(10, 385), .Size = New Size(720, 50), .BackColor = Color.Transparent}
         Dim btnNeu = MacheSekundaerButton("➕  NEU LEEREN", 145, 40)
         btnNeu.Location = New Point(0, 5)
         Dim btnLöschen = MacheGefahrButton("LÖSCHEN", 145, 40)
@@ -3109,7 +3246,9 @@ Public Class Form1
     Private Sub BtnAdd_Click(sender As Object, e As EventArgs)
         If lstArtikel.SelectedItem IsNot Nothing Then
             Dim row = DirectCast(lstArtikel.SelectedItem, DataRowView)
-            Dim neueZeile As Panel = ErstelleArtikelZeile("", row("bezeichnung").ToString(), row("einzelpreis_netto").ToString(), FmtMwSt(CDec(row("mwst_satz"))))
+            Dim artNetto As Decimal = CDec(row("einzelpreis_netto"))
+            Dim artMwst As Decimal = CDec(row("mwst_satz"))
+            Dim neueZeile As Panel = ErstelleArtikelZeile("", row("bezeichnung").ToString(), artNetto.ToString("N2"), BruttoText(row("einzelpreis_brutto"), artNetto, artMwst), FmtMwSt(artMwst))
             pnlRows.Controls.Add(neueZeile)
             pnlRows.Controls.SetChildIndex(pnlPlusContainer, pnlRows.Controls.Count - 1)
             pnlRows.ScrollControlIntoView(pnlPlusContainer)
@@ -3120,7 +3259,7 @@ Public Class Form1
     End Sub
 
     Private Sub BtnNewLine_Click(sender As Object, e As EventArgs)
-        Dim leereZeile = ErstelleArtikelZeile("0", "", "0,00", FmtMwSt(mwstSatz1))
+        Dim leereZeile = ErstelleArtikelZeile("0", "", "0,00", "0,00", FmtMwSt(mwstSatz1))
         pnlRows.Controls.Add(leereZeile)
         pnlRows.Controls.SetChildIndex(pnlPlusContainer, pnlRows.Controls.Count - 1)
         pnlRows.ScrollControlIntoView(pnlPlusContainer)
@@ -3133,6 +3272,17 @@ Public Class Form1
 
     Private Sub ChkMitglieder_ItemCheck(sender As Object, e As ItemCheckEventArgs)
         Me.BeginInvoke(New Action(AddressOf PruefeEingaben))
+
+        ' Vorbelegung der Rechnungsart aus dem Kundenstamm - nur beim Ankreuzen (nicht beim
+        ' Abwählen), und nur als Komfort-Vorschlag: der Nutzer kann cbPreisart danach
+        ' jederzeit selbst übersteuern, das wird beim Speichern nicht mehr angetastet.
+        If e.NewValue = CheckState.Checked Then
+            Dim drv = TryCast(chkMitglieder.Items(e.Index), DataRowView)
+            If drv IsNot Nothing Then
+                Dim standardPreisart As String = drv("standard_preisart").ToString()
+                cbPreisart.SelectedIndex = If(standardPreisart = "Brutto", 1, 0)
+            End If
+        End If
     End Sub
 
     Private Sub BtnSaveArt_Click(sender As Object, e As EventArgs)
@@ -3140,26 +3290,25 @@ Public Class Form1
         Dim pnl As Panel = DirectCast(btn.Parent, Panel)
 
         Dim txtText As TextBox = DirectCast(pnl.Controls.Find("txtText", True)(0), TextBox)
-        Dim txtPreis As TextBox = DirectCast(pnl.Controls.Find("txtPreis", True)(0), TextBox)
+        Dim txtPreisNetto As TextBox = DirectCast(pnl.Controls.Find("txtPreisNetto", True)(0), TextBox)
+        Dim txtPreisBrutto As TextBox = DirectCast(pnl.Controls.Find("txtPreisBrutto", True)(0), TextBox)
         Dim cbMwSt As ComboBox = DirectCast(pnl.Controls.Find("cbMwSt", True)(0), ComboBox)
 
         Dim bezeichnung As String = txtText.Text.Trim()
-        Dim txtPrsStr As String = txtPreis.Text
 
         If String.IsNullOrWhiteSpace(bezeichnung) Then
             MessageBox.Show("Bitte gib eine Artikelbezeichnung ein.", "Hinweis", MessageBoxButtons.OK, MessageBoxIcon.Warning)
             Return
         End If
 
-        Dim preisEingabe As Decimal = 0
-        ParseBetrag(txtPrsStr, preisEingabe)
+        ' Beide Felder sind dank der Sync-Logik in ErstelleArtikelZeile bereits konsistent -
+        ' hier einfach unverändert übernehmen, keine Rückrechnung nötig.
+        Dim nettoPreis As Decimal = 0
+        ParseBetrag(txtPreisNetto.Text, nettoPreis)
+        Dim bruttoPreis As Decimal = 0
+        ParseBetrag(txtPreisBrutto.Text, bruttoPreis)
         Dim mwst As Decimal = ParseMwSt(cbMwSt.Text)
         If mwst <= 0 Then mwst = mwstSatz1
-
-        Dim nettoPreis As Decimal = preisEingabe
-        If cbEingabeModus.SelectedIndex = 1 Then
-            nettoPreis = preisEingabe / (1 + (mwst / 100D))
-        End If
 
         Try
             Using conn = DatenbankManager.HoleVerbindung()
@@ -3171,10 +3320,11 @@ Public Class Form1
                 End If
                 Dim neueArtNr As String = naechsteNr.ToString("D3")
 
-                Dim cmdIns As New SQLiteCommand("INSERT INTO artikel (artikelnummer, bezeichnung, einzelpreis_netto, mwst_satz, einheit) VALUES (@artnr, @bez, @prs, @mwst, 'C62')", conn)
+                Dim cmdIns As New SQLiteCommand("INSERT INTO artikel (artikelnummer, bezeichnung, einzelpreis_netto, einzelpreis_brutto, mwst_satz, einheit) VALUES (@artnr, @bez, @prs, @prsBrutto, @mwst, 'C62')", conn)
                 cmdIns.Parameters.AddWithValue("@artnr", neueArtNr)
                 cmdIns.Parameters.AddWithValue("@bez", bezeichnung)
                 cmdIns.Parameters.AddWithValue("@prs", nettoPreis)
+                cmdIns.Parameters.AddWithValue("@prsBrutto", bruttoPreis)
                 cmdIns.Parameters.AddWithValue("@mwst", mwst)
                 cmdIns.ExecuteNonQuery()
             End Using
@@ -3275,13 +3425,16 @@ Public Class Form1
             Dim reNrStr As String = dgvRechnungen.CurrentRow.Cells("Re-Nr").Value.ToString()
             Dim geloeschteNr As Integer = CInt(reNrStr)
 
-            cbEingabeModus.SelectedIndex = 0
-
             Using conn = DatenbankManager.HoleVerbindung()
-                Dim cmdMid As New SQLiteCommand("SELECT mitglied_id FROM rechnungen WHERE id = @id", conn)
+                Dim cmdMid As New SQLiteCommand("SELECT mitglied_id, preisart FROM rechnungen WHERE id = @id", conn)
                 cmdMid.Parameters.AddWithValue("@id", reID)
-                Dim midObj = cmdMid.ExecuteScalar()
-                Dim mitgliedId As Integer = If(midObj IsNot Nothing AndAlso Not DBNull.Value.Equals(midObj), CInt(midObj), 0)
+                Dim mitgliedId As Integer = 0
+                Using rMid = cmdMid.ExecuteReader()
+                    If rMid.Read() Then
+                        If Not DBNull.Value.Equals(rMid("mitglied_id")) Then mitgliedId = CInt(rMid("mitglied_id"))
+                        cbPreisart.SelectedIndex = If(rMid("preisart").ToString() = "Brutto", 1, 0)
+                    End If
+                End Using
 
                 For i As Integer = pnlRows.Controls.Count - 1 To 0 Step -1
                     If pnlRows.Controls(i).Name = "Zeile" Then pnlRows.Controls.RemoveAt(i)
@@ -3292,11 +3445,13 @@ Public Class Form1
                     chkMitglieder.SetItemChecked(i, CInt(drv("id")) = mitgliedId)
                 Next
 
-                Dim cmdPos As New SQLiteCommand("SELECT anzahl, artikel_bezeichnung, einzelpreis, mwst_satz FROM rechnungspositionen WHERE rechnung_id = @id", conn)
+                Dim cmdPos As New SQLiteCommand("SELECT anzahl, artikel_bezeichnung, einzelpreis, einzelpreis_brutto, mwst_satz FROM rechnungspositionen WHERE rechnung_id = @id", conn)
                 cmdPos.Parameters.AddWithValue("@id", reID)
                 Using reader = cmdPos.ExecuteReader()
                     While reader.Read()
-                        Dim neueZeile = ErstelleArtikelZeile(reader("anzahl").ToString(), reader("artikel_bezeichnung").ToString(), CDec(reader("einzelpreis")).ToString("N2"), FmtMwSt(CDec(reader("mwst_satz"))))
+                        Dim posNetto As Decimal = CDec(reader("einzelpreis"))
+                        Dim posMwst As Decimal = CDec(reader("mwst_satz"))
+                        Dim neueZeile = ErstelleArtikelZeile(reader("anzahl").ToString(), reader("artikel_bezeichnung").ToString(), posNetto.ToString("N2"), BruttoText(reader("einzelpreis_brutto"), posNetto, posMwst), FmtMwSt(posMwst))
                         pnlRows.Controls.Add(neueZeile)
                         pnlRows.Controls.SetChildIndex(pnlPlusContainer, pnlRows.Controls.Count - 1)
                     End While
@@ -3539,7 +3694,7 @@ Public Class Form1
                 Next
 
                 For Each pos In rechnung.Positionen
-                    Dim neueZeile As Panel = ErstelleArtikelZeile("", pos.Bezeichnung, pos.EinzelpreisNetto.ToString("N2"), FmtMwSt(pos.MwStSatz))
+                    Dim neueZeile As Panel = ErstelleArtikelZeile("", pos.Bezeichnung, pos.EinzelpreisNetto.ToString("N2"), BruttoText(Nothing, pos.EinzelpreisNetto, pos.MwStSatz), FmtMwSt(pos.MwStSatz))
                     pnlRows.Controls.Add(neueZeile)
                 Next
 

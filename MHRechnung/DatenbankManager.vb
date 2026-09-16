@@ -62,6 +62,21 @@ Public Class DatenbankManager
             "
             sqlCmd.ExecuteNonQuery()
 
+            ' 2b. Migration für bestehende Datenbanken: CREATE TABLE IF NOT EXISTS legt bei schon
+            ' vorhandenen Tabellen keine neuen Spalten nach. Für den Netto/Brutto-Umbau werden
+            ' hier gezielt fehlende Spalten nachgerüstet, ohne bestehende Daten anzufassen.
+            ' - rechnungen.preisart: legt pro Rechnung fest, ob die gedruckte Einzelpreis-Spalte
+            '   Netto oder Brutto zeigt.
+            ' - rechnungspositionen.einzelpreis_brutto: der exakt eingegebene Bruttopreis pro
+            '   Position (falls Brutto eingetippt wurde) - wird beim Drucken unverändert
+            '   übernommen, damit keine Rundungs-Rückrechnung krumme Zahlen erzeugt.
+            ' - mitglieder.standard_preisart: Vorbelegung für neue Rechnungen dieses Kunden.
+            ' - artikel.einzelpreis_brutto: exakter Standard-Bruttopreis des Artikels (analog).
+            FuegeSpalteHinzuFallsFehlt(conn, "rechnungen", "preisart", "TEXT DEFAULT 'Netto'")
+            FuegeSpalteHinzuFallsFehlt(conn, "rechnungspositionen", "einzelpreis_brutto", "REAL")
+            FuegeSpalteHinzuFallsFehlt(conn, "mitglieder", "standard_preisart", "TEXT DEFAULT 'Netto'")
+            FuegeSpalteHinzuFallsFehlt(conn, "artikel", "einzelpreis_brutto", "REAL")
+
             ' 3. Grundeinstellungen NUR einfügen, wenn die Einstellungen-Tabelle noch absolut leer ist.
             ' Die Firmen-/Bankdaten sind hier einmalig aus deiner hochgeladenen Beispielrechnung
             ' vorbelegt, damit du nicht bei null anfangen musst - änderbar bleibt alles jederzeit
@@ -88,9 +103,9 @@ Public Class DatenbankManager
                         ('firma_bic', 'GENODEF1TRH'),
                         ('firma_bank', 'Raiffeisenbank Türkheim');
 
-                    INSERT INTO artikel (artikelnummer, bezeichnung, einzelpreis_netto, mwst_satz, einheit) VALUES
-                        ('001', 'Ballen Weizenstroh 90er', 30.00, 7.8, 'C62'),
-                        ('002', 'Hackschnitzel Fichte, lose (m³)', 55.00, 5.5, 'MTQ');
+                    INSERT INTO artikel (artikelnummer, bezeichnung, einzelpreis_netto, einzelpreis_brutto, mwst_satz, einheit) VALUES
+                        ('001', 'Ballen Weizenstroh 90er', 30.00, 32.34, 7.8, 'C62'),
+                        ('002', 'Hackschnitzel Fichte, lose (m³)', 55.00, 58.03, 5.5, 'MTQ');
                 "
                 sqlCmd.ExecuteNonQuery()
 
@@ -121,4 +136,21 @@ Public Class DatenbankManager
         conn.Open()
         Return conn
     End Function
+
+    ''' <summary>Fügt einer bestehenden Tabelle eine Spalte hinzu, falls sie noch fehlt (per
+    ''' PRAGMA table_info geprüft). SQLite kennt kein "ADD COLUMN IF NOT EXISTS" - das hier
+    ''' macht denselben Effekt manuell, ohne bestehende Daten anzufassen.</summary>
+    Private Shared Sub FuegeSpalteHinzuFallsFehlt(conn As SQLiteConnection, tabelle As String, spalte As String, spaltenTyp As String)
+        Dim cmdCheck As New SQLiteCommand($"PRAGMA table_info({tabelle})", conn)
+        Using reader = cmdCheck.ExecuteReader()
+            While reader.Read()
+                If reader("name").ToString().Equals(spalte, StringComparison.OrdinalIgnoreCase) Then
+                    Return ' Spalte existiert bereits
+                End If
+            End While
+        End Using
+
+        Dim cmdAlter As New SQLiteCommand($"ALTER TABLE {tabelle} ADD COLUMN {spalte} {spaltenTyp}", conn)
+        cmdAlter.ExecuteNonQuery()
+    End Sub
 End Class

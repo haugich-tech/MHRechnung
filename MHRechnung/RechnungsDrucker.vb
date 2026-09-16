@@ -123,10 +123,11 @@ Public Class RechnungsDrucker
         Dim kundenEmail As String = ""
         Dim rechnungsdatum As String = ""
         Dim lieferdatum As String = ""
-        Dim positionen As New List(Of (bez As String, anz As Decimal, prs As Decimal, mwst As Decimal))
+        Dim preisart As String = "Netto"
+        Dim positionen As New List(Of (bez As String, anz As Decimal, prs As Decimal, prsBrutto As Decimal, mwst As Decimal))
 
         Using conn = DatenbankManager.HoleVerbindung()
-            Dim sqlK = "SELECT r.datum, r.lieferdatum, m.name, m.strasse, m.plz, m.ort, m.steuernummer, m.betriebsnummer, m.email " &
+            Dim sqlK = "SELECT r.datum, r.lieferdatum, r.preisart, m.name, m.strasse, m.plz, m.ort, m.steuernummer, m.betriebsnummer, m.email " &
                        "FROM rechnungen r JOIN mitglieder m ON r.mitglied_id = m.id WHERE r.id = @id"
             Dim cmdK As New SQLiteCommand(sqlK, conn)
             cmdK.Parameters.AddWithValue("@id", reID)
@@ -134,6 +135,7 @@ Public Class RechnungsDrucker
                 If r.Read() Then
                     rechnungsdatum = r("datum").ToString()
                     lieferdatum = r("lieferdatum").ToString()
+                    If r("preisart").ToString() = "Brutto" Then preisart = "Brutto"
                     kundenName = r("name").ToString()
                     kundenStrasse = r("strasse").ToString()
                     kundenPLZ = r("plz").ToString()
@@ -146,11 +148,22 @@ Public Class RechnungsDrucker
             If String.IsNullOrWhiteSpace(rechnungsdatum) Then rechnungsdatum = DateTime.Now.ToString("dd.MM.yyyy")
             If String.IsNullOrWhiteSpace(lieferdatum) Then lieferdatum = rechnungsdatum
 
-            Dim cmdP As New SQLiteCommand("SELECT artikel_bezeichnung, anzahl, einzelpreis, mwst_satz FROM rechnungspositionen WHERE rechnung_id = @id", conn)
+            Dim cmdP As New SQLiteCommand("SELECT artikel_bezeichnung, anzahl, einzelpreis, einzelpreis_brutto, mwst_satz FROM rechnungspositionen WHERE rechnung_id = @id", conn)
             cmdP.Parameters.AddWithValue("@id", reID)
             Using r = cmdP.ExecuteReader()
                 While r.Read()
-                    positionen.Add((r("artikel_bezeichnung").ToString(), CDec(r("anzahl")), CDec(r("einzelpreis")), CDec(r("mwst_satz"))))
+                    Dim posNetto As Decimal = CDec(r("einzelpreis"))
+                    Dim posMwst As Decimal = CDec(r("mwst_satz"))
+                    ' Exakt gespeicherten Bruttopreis übernehmen (wichtig für glatte, vereinbarte
+                    ' Beträge wie "2.000,00 €") - fehlt er (NULL, z.B. Alt-/Importdaten), aus
+                    ' Netto berechnen.
+                    Dim posBrutto As Decimal
+                    If IsDBNull(r("einzelpreis_brutto")) OrElse CDec(r("einzelpreis_brutto")) <= 0 Then
+                        posBrutto = posNetto * (1 + posMwst / 100D)
+                    Else
+                        posBrutto = CDec(r("einzelpreis_brutto"))
+                    End If
+                    positionen.Add((r("artikel_bezeichnung").ToString(), CDec(r("anzahl")), posNetto, posBrutto, posMwst))
                 End While
             End Using
         End Using
@@ -379,11 +392,18 @@ Public Class RechnungsDrucker
 
             ' --- ARTIKEL SCHLEIFE MIT SEITENUMBRUCH ---
             Dim rowY As Double = drawTableHeader(currentGfx, 260)
+            ' nettoGesamtLaufend bleibt für die interne Logik unangetastet (Netto ist und
+            ' bleibt die Bezugsgröße für die Steuerberechnung im Summenblock unten).
+            ' anzeigeGesamtLaufend ist der separate, rein optische "Übertrag"-Wert - zeigt je
+            ' nach preisart Netto oder Brutto, passend zur Einzelpreis-/Gesamt-Spalte der Zeile.
             Dim nettoGesamtLaufend As Decimal = 0
+            Dim anzeigeGesamtLaufend As Decimal = 0
 
             For i As Integer = 0 To positionen.Count - 1
                 Dim pos = positionen(i)
                 Dim zeileNetto As Decimal = pos.anz * pos.prs
+                Dim einzelpreisAnzeige As Decimal = If(preisart = "Brutto", pos.prsBrutto, pos.prs)
+                Dim zeileAnzeige As Decimal = If(preisart = "Brutto", pos.anz * pos.prsBrutto, zeileNetto)
 
                 ' Prüfen, ob der nächste Artikel noch auf die Seite passt
                 Dim neededHeight As Double = MeasureWrappedTextHeight(currentGfx, pos.bez, fNorm, maxDescWidth, 12) + 8
@@ -392,7 +412,7 @@ Public Class RechnungsDrucker
                 If rowY + neededHeight > pH - 130 Then
                     ' 1. Tabelle beenden & Übertrag schreiben
                     currentGfx.DrawString("Übertrag:", fBold, bBlack, cMwSt - 20, rowY)
-                    DrawRight(currentGfx, nettoGesamtLaufend.ToString("N2") & " €", fBold, bBlack, mR - 2, rowY)
+                    DrawRight(currentGfx, anzeigeGesamtLaufend.ToString("N2") & " €", fBold, bBlack, mR - 2, rowY)
                     Dim tBot As Double = rowY + 10
                     currentGfx.DrawLine(penThick, mL, tBot, mR, tBot)
                     drawFooter(currentGfx)
@@ -410,7 +430,7 @@ Public Class RechnungsDrucker
 
                     ' 4. Übertrag oben reinschreiben
                     currentGfx.DrawString("Übertrag von Seite " & (pages.Count - 1), fNorm, bBlack, cBez, rowY)
-                    DrawRight(currentGfx, nettoGesamtLaufend.ToString("N2") & " €", fNorm, bBlack, mR - 2, rowY)
+                    DrawRight(currentGfx, anzeigeGesamtLaufend.ToString("N2") & " €", fNorm, bBlack, mR - 2, rowY)
                     rowY += 15
                 End If
 
@@ -421,21 +441,22 @@ Public Class RechnungsDrucker
                     ' Wie FormatMwSt: InvariantCulture + manuelles Komma, damit die Ausgabe nicht
                     ' vom Thread-Culture zur Druckzeit abhängt.
                     DrawRight(currentGfx, pos.anz.ToString("0.##", Globalization.CultureInfo.InvariantCulture).Replace(".", ","), fNorm, bBlack, cAnz + 20, rowY)
-                    DrawRight(currentGfx, pos.prs.ToString("N2") & " €", fNorm, bBlack, cPre + 20, rowY)
+                    DrawRight(currentGfx, einzelpreisAnzeige.ToString("N2") & " €", fNorm, bBlack, cPre + 20, rowY)
                     DrawRight(currentGfx, FormatMwSt(pos.mwst), fNorm, bBlack, cMwSt + 15, rowY)
-                    DrawRight(currentGfx, zeileNetto.ToString("N2") & " €", fNorm, bBlack, mR - 2, rowY)
+                    DrawRight(currentGfx, zeileAnzeige.ToString("N2") & " €", fNorm, bBlack, mR - 2, rowY)
                 End If
 
                 Dim nextY As Double = DrawWrappedText(currentGfx, pos.bez, fNorm, bBlack, cBez, rowY, maxDescWidth, 12)
                 rowY = nextY + 8
                 nettoGesamtLaufend += zeileNetto
+                anzeigeGesamtLaufend += zeileAnzeige
             Next
 
             ' --- PRÜFEN OB SUMMENBLOCK NOCH PASST ---
             If rowY + 160 > pH - 110 Then
                 ' Reicht nicht mehr für den Summenblock -> neue Seite nur für die Summe
                 currentGfx.DrawString("Übertrag:", fBold, bBlack, cMwSt - 20, rowY)
-                DrawRight(currentGfx, nettoGesamtLaufend.ToString("N2") & " €", fBold, bBlack, mR - 2, rowY)
+                DrawRight(currentGfx, anzeigeGesamtLaufend.ToString("N2") & " €", fBold, bBlack, mR - 2, rowY)
                 Dim tBot As Double = rowY + 10
                 currentGfx.DrawLine(penThick, mL, tBot, mR, tBot)
                 drawFooter(currentGfx)
@@ -450,7 +471,7 @@ Public Class RechnungsDrucker
                 rowY = drawTableHeader(currentGfx, 110)
 
                 currentGfx.DrawString("Übertrag von Seite " & (pages.Count - 1), fNorm, bBlack, cBez, rowY)
-                DrawRight(currentGfx, nettoGesamtLaufend.ToString("N2") & " €", fNorm, bBlack, mR - 2, rowY)
+                DrawRight(currentGfx, anzeigeGesamtLaufend.ToString("N2") & " €", fNorm, bBlack, mR - 2, rowY)
                 rowY += 15
             End If
 
