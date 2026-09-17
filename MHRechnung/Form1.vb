@@ -644,8 +644,16 @@ Public Class Form1
     ' TAB 1: RECHNUNGSERFASSUNG LOGIK
     ' =========================================================================
 
+    ' Muss exakt dieselbe Rechenmethode wie RechnungsDrucker.ErstelleRechnung verwenden -
+    ' sonst weicht diese Voransicht von der später gedruckten Rechnung ab (genau das war der
+    ' gemeldete Fehler: PDF zeigte nach dem Brutto-Fix den korrekten Betrag, die Voransicht
+    ' hier aber noch den alten, Netto-zuerst gerundeten). Pro Satz gebündelt runden, nicht
+    ' pro Zeile einzeln - und im Brutto-Modus ist Brutto die Bezugsgröße (Steuer = Brutto -
+    ' Netto), nicht andersherum.
     Private Sub BerechneSummenTab1(sender As Object, e As EventArgs)
-        Dim netto As Decimal = 0, mwstA As Decimal = 0, mwstB As Decimal = 0
+        Dim isBruttoModus As Boolean = (cbPreisart.SelectedIndex = 1)
+        Dim nettoBasisA As Decimal = 0, nettoBasisB As Decimal = 0
+        Dim bruttoBasisA As Decimal = 0, bruttoBasisB As Decimal = 0
 
         For Each ctrl As Control In pnlRows.Controls
             If ctrl.Name <> "Zeile" Then Continue For
@@ -653,36 +661,31 @@ Public Class Form1
 
             Dim txtAnzahl = DirectCast(pnl.Controls.Find("txtAnzahl", True)(0), TextBox)
             Dim txtPreisNetto = DirectCast(pnl.Controls.Find("txtPreisNetto", True)(0), TextBox)
+            Dim txtPreisBrutto = DirectCast(pnl.Controls.Find("txtPreisBrutto", True)(0), TextBox)
             Dim cbMwSt = DirectCast(pnl.Controls.Find("cbMwSt", True)(0), ComboBox)
             Dim lblGesamt = DirectCast(pnl.Controls.Find("lblGesamt", True)(0), Label)
             Dim txtText = DirectCast(pnl.Controls.Find("txtText", True)(0), TextBox)
             Dim btnSave As Button = TryCast(pnl.Controls.Find("btnSaveArt", True).FirstOrDefault(), Button)
 
-            Dim anzahl As Decimal = 0, preisNettoEingabe As Decimal = 0
-            ' Netto ist dank der Sync-Logik in ErstelleArtikelZeile immer aktuell, egal ob
-            ' zuletzt ins Netto- oder Brutto-Feld getippt wurde - deshalb reicht hier ein Feld
-            ' für die Berechnung, kein Eingabemodus-Unterschied mehr nötig.
+            Dim anzahl As Decimal = 0, preisNettoEingabe As Decimal = 0, preisBruttoEingabe As Decimal = 0
             Dim isPreisAktiv = ParseBetrag(txtPreisNetto.Text, preisNettoEingabe)
+            ParseBetrag(txtPreisBrutto.Text, preisBruttoEingabe)
             ParseBetrag(txtAnzahl.Text, anzahl)
 
-            Dim zeilenNetto As Decimal = 0
-            Dim zeilenBrutto As Decimal = 0
             Dim satzProzent As Decimal = ParseMwSt(cbMwSt.Text)
             Dim istSatz2 As Boolean = (Math.Abs(satzProzent - mwstSatz2) < 0.01D)
             Dim mwstSatz As Decimal = satzProzent / 100D
 
             If isPreisAktiv Then
-                zeilenNetto = anzahl * preisNettoEingabe
-                zeilenBrutto = zeilenNetto * (1 + mwstSatz)
-
-                netto += zeilenNetto
-                If istSatz2 Then
-                    mwstB += (zeilenBrutto - zeilenNetto)
+                If isBruttoModus Then
+                    Dim zeilenBrutto As Decimal = Math.Round(anzahl * preisBruttoEingabe, 2, MidpointRounding.AwayFromZero)
+                    If istSatz2 Then bruttoBasisB += zeilenBrutto Else bruttoBasisA += zeilenBrutto
+                    lblGesamt.Text = zeilenBrutto.ToString("N2") & " €"
                 Else
-                    mwstA += (zeilenBrutto - zeilenNetto)
+                    Dim zeilenNetto As Decimal = Math.Round(anzahl * preisNettoEingabe, 2, MidpointRounding.AwayFromZero)
+                    If istSatz2 Then nettoBasisB += zeilenNetto Else nettoBasisA += zeilenNetto
+                    lblGesamt.Text = (zeilenNetto * (1 + mwstSatz)).ToString("N2") & " €"
                 End If
-
-                lblGesamt.Text = zeilenBrutto.ToString("N2") & " €"
             End If
 
             If btnSave IsNot Nothing Then
@@ -698,6 +701,19 @@ Public Class Form1
                 End If
             End If
         Next
+
+        Dim netto As Decimal, mwstA As Decimal, mwstB As Decimal
+        If isBruttoModus Then
+            Dim nettoA As Decimal = Math.Round(bruttoBasisA / (1 + mwstSatz1 / 100D), 2, MidpointRounding.AwayFromZero)
+            Dim nettoB As Decimal = Math.Round(bruttoBasisB / (1 + mwstSatz2 / 100D), 2, MidpointRounding.AwayFromZero)
+            mwstA = bruttoBasisA - nettoA
+            mwstB = bruttoBasisB - nettoB
+            netto = nettoA + nettoB
+        Else
+            netto = nettoBasisA + nettoBasisB
+            mwstA = Math.Round(nettoBasisA * (mwstSatz1 / 100D), 2, MidpointRounding.AwayFromZero)
+            mwstB = Math.Round(nettoBasisB * (mwstSatz2 / 100D), 2, MidpointRounding.AwayFromZero)
+        End If
 
         lblSummenTab1.Text = $"  Netto: {netto:N2} €     MwSt {FmtMwSt(mwstSatz1)}: {mwstA:N2} €     MwSt {FmtMwSt(mwstSatz2)}: {mwstB:N2} €     Brutto-Gesamt: {(netto + mwstA + mwstB):N2} €"
         PruefeEingaben()
@@ -2522,6 +2538,10 @@ Public Class Form1
         cbPreisart.Font = FONT_NORMAL
         cbPreisart.Items.AddRange({"Rechnung zeigt: NETTO", "Rechnung zeigt: BRUTTO"})
         cbPreisart.SelectedIndex = 0
+        ' Die Voransicht unten (BerechneSummenTab1) hängt jetzt von der Rechnungsart ab
+        ' (Brutto-Modus rechnet anders als Netto-Modus) - ohne diesen Handler würde ein
+        ' Umschalten des Dropdowns allein die Voransicht nicht aktualisieren.
+        AddHandler cbPreisart.SelectedIndexChanged, AddressOf BerechneSummenTab1
         pnlPreisart.Controls.AddRange({cbPreisart, lblPreisart})
 
         pnlR.Controls.Add(pnlChkContainer)
