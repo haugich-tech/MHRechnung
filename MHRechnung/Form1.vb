@@ -919,29 +919,59 @@ Public Class Form1
 
     ' =========================================================================
     ' ZENTRALE BRUTTO-BERECHNUNG
-    ' Einheitliche Rundungslogik für Anzeige, PDF und Excel:
-    ' Zeilennetto auf 2 Stellen runden, Steuer auf die gerundete Basis, dann runden.
-    ' Identisch mit RechnungsDrucker und ZugferdGenerator - keine Cent-Differenzen.
+    ' Einzige Stelle, die den Rechnungsbetrag aus der Datenbank nachrechnet - für Kontrolle&
+    ' Stapel-Liste, Archiv-Liste und die gemeinsame Detailanzeige. Muss exakt dieselbe Methode
+    ' wie RechnungsDrucker.ErstelleRechnung verwenden, sonst zeigt das Programm einen anderen
+    ' Betrag als die tatsächlich gedruckte PDF (das war der gemeldete Fehler: mehrere Stellen
+    ' im Programm hatten ihre eigene, nicht mehr synchron gehaltene Kopie dieser Berechnung).
+    ' Netto-Rechnung: Netto je Satz gerundet summieren, Steuer auf die gerundete Basis.
+    ' Brutto-Rechnung: Brutto je Satz ist die Bezugsgröße (exakt wie eingegeben/gespeichert).
     ' =========================================================================
     Private Shared Function BerechneBruttoAusDb(conn As SQLiteConnection, reID As Integer) As Decimal
-        Dim netto As Decimal = 0
-        Dim basisProSatz As New Dictionary(Of Decimal, Decimal)
-        Dim cmd As New SQLiteCommand("SELECT anzahl, einzelpreis, mwst_satz FROM rechnungspositionen WHERE rechnung_id = @id", conn)
+        Dim preisart As String = "Netto"
+        Dim cmdPa As New SQLiteCommand("SELECT preisart FROM rechnungen WHERE id = @id", conn)
+        cmdPa.Parameters.AddWithValue("@id", reID)
+        Dim paObj = cmdPa.ExecuteScalar()
+        If paObj IsNot Nothing AndAlso Not DBNull.Value.Equals(paObj) AndAlso paObj.ToString() = "Brutto" Then preisart = "Brutto"
+
+        Dim nettoGesamt As Decimal = 0
+        Dim basisProSatz As New Dictionary(Of Decimal, Decimal) ' Netto-Modus: Netto je Satz - Brutto-Modus: Brutto je Satz
+        Dim cmd As New SQLiteCommand("SELECT anzahl, einzelpreis, einzelpreis_brutto, mwst_satz FROM rechnungspositionen WHERE rechnung_id = @id", conn)
         cmd.Parameters.AddWithValue("@id", reID)
         Using r = cmd.ExecuteReader()
             While r.Read()
-                Dim zn As Decimal = Math.Round(CDec(r("anzahl")) * CDec(r("einzelpreis")), 2, MidpointRounding.AwayFromZero)
-                netto += zn
                 Dim mwst As Decimal = CDec(r("mwst_satz"))
                 If Not basisProSatz.ContainsKey(mwst) Then basisProSatz(mwst) = 0
-                basisProSatz(mwst) += zn
+
+                If preisart = "Brutto" Then
+                    Dim bruttoWert As Decimal
+                    If IsDBNull(r("einzelpreis_brutto")) OrElse CDec(r("einzelpreis_brutto")) <= 0 Then
+                        bruttoWert = CDec(r("einzelpreis")) * (1 + mwst / 100D)
+                    Else
+                        bruttoWert = CDec(r("einzelpreis_brutto"))
+                    End If
+                    basisProSatz(mwst) += Math.Round(CDec(r("anzahl")) * bruttoWert, 2, MidpointRounding.AwayFromZero)
+                Else
+                    Dim zn As Decimal = Math.Round(CDec(r("anzahl")) * CDec(r("einzelpreis")), 2, MidpointRounding.AwayFromZero)
+                    nettoGesamt += zn
+                    basisProSatz(mwst) += zn
+                End If
             End While
         End Using
-        Dim steuerGesamt As Decimal = 0
-        For Each kv In basisProSatz
-            steuerGesamt += Math.Round(kv.Value * (kv.Key / 100D), 2, MidpointRounding.AwayFromZero)
-        Next
-        Return netto + steuerGesamt
+
+        If preisart = "Brutto" Then
+            Dim bruttoGesamt As Decimal = 0
+            For Each kv In basisProSatz
+                bruttoGesamt += kv.Value
+            Next
+            Return bruttoGesamt
+        Else
+            Dim steuerGesamt As Decimal = 0
+            For Each kv In basisProSatz
+                steuerGesamt += Math.Round(kv.Value * (kv.Key / 100D), 2, MidpointRounding.AwayFromZero)
+            Next
+            Return nettoGesamt + steuerGesamt
+        End If
     End Function
 
     ' =========================================================================
@@ -952,12 +982,24 @@ Public Class Form1
 
         Dim gesamtNetto As Decimal = 0
         Dim basisProSatz As New Dictionary(Of Decimal, Decimal)
+        ' Zusätzlich Brutto je Satz mitgeführt (nur für Brutto-Rechnungen gebraucht) - die
+        ' Zeilenliste zeigt weiterhin Netto pro Position (nur interne Übersicht), aber der
+        ' Summenblock unten muss exakt den gedruckten Rechnungsbetrag treffen, siehe
+        ' BerechneBruttoAusDb.
+        Dim bruttoBasisProSatz As New Dictionary(Of Decimal, Decimal)
 
         Dim zeilenBreite As Integer = Math.Max(650, pnlContent.Width - 25)
         Dim bezBreite As Integer = zeilenBreite - 380
 
+        Dim preisart As String = "Netto"
+
         Using conn = DatenbankManager.HoleVerbindung()
-            Dim sql = "SELECT anzahl, artikel_bezeichnung, einzelpreis, mwst_satz FROM rechnungspositionen WHERE rechnung_id = @id"
+            Dim cmdPa As New SQLiteCommand("SELECT preisart FROM rechnungen WHERE id = @id", conn)
+            cmdPa.Parameters.AddWithValue("@id", reID)
+            Dim paObj = cmdPa.ExecuteScalar()
+            If paObj IsNot Nothing AndAlso Not DBNull.Value.Equals(paObj) AndAlso paObj.ToString() = "Brutto" Then preisart = "Brutto"
+
+            Dim sql = "SELECT anzahl, artikel_bezeichnung, einzelpreis, einzelpreis_brutto, mwst_satz FROM rechnungspositionen WHERE rechnung_id = @id"
             Dim cmd As New SQLiteCommand(sql, conn)
             cmd.Parameters.AddWithValue("@id", reID)
 
@@ -973,6 +1015,15 @@ Public Class Form1
                     gesamtNetto += netto
                     If Not basisProSatz.ContainsKey(mwst) Then basisProSatz(mwst) = 0
                     basisProSatz(mwst) += netto
+
+                    If Not bruttoBasisProSatz.ContainsKey(mwst) Then bruttoBasisProSatz(mwst) = 0
+                    Dim bruttoWert As Decimal
+                    If IsDBNull(reader("einzelpreis_brutto")) OrElse CDec(reader("einzelpreis_brutto")) <= 0 Then
+                        bruttoWert = epreis * (1 + mwst / 100D)
+                    Else
+                        bruttoWert = CDec(reader("einzelpreis_brutto"))
+                    End If
+                    bruttoBasisProSatz(mwst) += Math.Round(anz * bruttoWert, 2, MidpointRounding.AwayFromZero)
 
                     Dim lblBez As New Label With {
                         .Text = bez,
@@ -1010,13 +1061,30 @@ Public Class Form1
         End Using
 
         Dim gesamtSteuer As Decimal = 0
+        Dim gesamtBrutto As Decimal = 0
         Dim steuerZeilen As New List(Of String)
-        For Each kv In basisProSatz.OrderByDescending(Function(x) x.Key)
-            Dim satzSteuer As Decimal = Math.Round(kv.Value * (kv.Key / 100D), 2, MidpointRounding.AwayFromZero)
-            gesamtSteuer += satzSteuer
-            steuerZeilen.Add($"MwSt {FmtMwSt(kv.Key)}: {satzSteuer:N2} €")
-        Next
-        Dim gesamtBrutto As Decimal = gesamtNetto + gesamtSteuer
+
+        If preisart = "Brutto" Then
+            ' Brutto ist bei dieser Rechnung die Bezugsgröße (siehe BerechneBruttoAusDb) -
+            ' Netto/Steuer je Satz davon zurückrechnen, damit der hier gezeigte
+            ' Rechnungsbetrag exakt mit der gedruckten PDF übereinstimmt.
+            gesamtNetto = 0
+            For Each kv In bruttoBasisProSatz.OrderByDescending(Function(x) x.Key)
+                Dim nettoBucket As Decimal = Math.Round(kv.Value / (1 + kv.Key / 100D), 2, MidpointRounding.AwayFromZero)
+                Dim steuerBucket As Decimal = kv.Value - nettoBucket
+                gesamtNetto += nettoBucket
+                gesamtSteuer += steuerBucket
+                gesamtBrutto += kv.Value
+                steuerZeilen.Add($"MwSt {FmtMwSt(kv.Key)}: {steuerBucket:N2} €")
+            Next
+        Else
+            For Each kv In basisProSatz.OrderByDescending(Function(x) x.Key)
+                Dim satzSteuer As Decimal = Math.Round(kv.Value * (kv.Key / 100D), 2, MidpointRounding.AwayFromZero)
+                gesamtSteuer += satzSteuer
+                steuerZeilen.Add($"MwSt {FmtMwSt(kv.Key)}: {satzSteuer:N2} €")
+            Next
+            gesamtBrutto = gesamtNetto + gesamtSteuer
+        End If
 
         lblSumme.Text = $"Netto: {gesamtNetto:N2} €" & vbCrLf &
                                String.Join(vbCrLf, steuerZeilen) & vbCrLf & vbCrLf &
@@ -1028,19 +1096,19 @@ Public Class Form1
     ' =========================================================================
     Private Sub LadeStapelverarbeitung()
         Using conn = DatenbankManager.HoleVerbindung()
-            Dim s1 As String = mwstSatz1.ToString(Globalization.CultureInfo.InvariantCulture)
-            Dim s2 As String = mwstSatz2.ToString(Globalization.CultureInfo.InvariantCulture)
-            Dim f1 As String = (mwstSatz1 / 100D).ToString(Globalization.CultureInfo.InvariantCulture)
-            Dim f2 As String = (mwstSatz2 / 100D).ToString(Globalization.CultureInfo.InvariantCulture)
-            Dim sql = "SELECT r.id, r.rechnungsnummer AS 'Re-Nr', m.name AS 'Empfänger', " &
-                      "(SELECT ROUND(SUM(ROUND(anzahl*einzelpreis,2)) " &
-                      " + ROUND(SUM(CASE WHEN mwst_satz=" & s1 & " THEN ROUND(anzahl*einzelpreis,2) ELSE 0 END)*" & f1 & ",2) " &
-                      " + ROUND(SUM(CASE WHEN mwst_satz=" & s2 & " THEN ROUND(anzahl*einzelpreis,2) ELSE 0 END)*" & f2 & ",2),2) " &
-                      " FROM rechnungspositionen WHERE rechnung_id = r.id) AS 'Brutto' " &
+            ' Brutto wird NICHT mehr per SQL-Formel berechnet (die kannte "preisart" und den
+            ' gespeicherten Bruttopreis nicht und lief deshalb bei Brutto-Rechnungen aus dem
+            ' Ruder) - stattdessen pro Zeile über die zentrale BerechneBruttoAusDb, dieselbe
+            ' Methode wie beim tatsächlichen PDF-Druck.
+            Dim sql = "SELECT r.id, r.rechnungsnummer AS 'Re-Nr', m.name AS 'Empfänger' " &
                       "FROM rechnungen r JOIN mitglieder m ON r.mitglied_id = m.id WHERE r.status = 'Erfasst'"
             Dim daRe As New SQLiteDataAdapter(sql, conn)
             Dim dtRe As New DataTable()
             daRe.Fill(dtRe)
+            dtRe.Columns.Add("Brutto", GetType(Decimal))
+            For Each row As DataRow In dtRe.Rows
+                row("Brutto") = BerechneBruttoAusDb(conn, CInt(row("id")))
+            Next
 
             dgvRechnungen.DataSource = dtRe
             If dgvRechnungen.Columns.Contains("id") Then dgvRechnungen.Columns("id").Visible = False
@@ -2220,15 +2288,7 @@ Public Class Form1
     ' =========================================================================
     Private Sub LadeArchiv()
         Using conn = DatenbankManager.HoleVerbindung()
-            Dim s1 As String = mwstSatz1.ToString(Globalization.CultureInfo.InvariantCulture)
-            Dim s2 As String = mwstSatz2.ToString(Globalization.CultureInfo.InvariantCulture)
-            Dim f1 As String = (mwstSatz1 / 100D).ToString(Globalization.CultureInfo.InvariantCulture)
-            Dim f2 As String = (mwstSatz2 / 100D).ToString(Globalization.CultureInfo.InvariantCulture)
             Dim sql = "SELECT r.id, r.rechnungsnummer AS 'Re-Nr', r.datum AS 'Datum', m.name AS 'Empfänger', " &
-                      "(SELECT ROUND(SUM(ROUND(anzahl*einzelpreis,2)) " &
-                      " + ROUND(SUM(CASE WHEN mwst_satz=" & s1 & " THEN ROUND(anzahl*einzelpreis,2) ELSE 0 END)*" & f1 & ",2) " &
-                      " + ROUND(SUM(CASE WHEN mwst_satz=" & s2 & " THEN ROUND(anzahl*einzelpreis,2) ELSE 0 END)*" & f2 & ",2),2) " &
-                      " FROM rechnungspositionen WHERE rechnung_id = r.id) AS 'Brutto', " &
                       "CASE WHEN m.versandart = 'E-Mail' OR m.versandart = 'Beides' THEN '✓' ELSE '-' END AS 'E-Mail' " &
                       "FROM rechnungen r JOIN mitglieder m ON r.mitglied_id = m.id " &
                       "WHERE r.status = 'Verarbeitet & Exportiert' ORDER BY CAST(r.rechnungsnummer AS INTEGER) DESC"
@@ -2236,6 +2296,15 @@ Public Class Form1
             Dim da As New SQLiteDataAdapter(sql, conn)
             Dim dt As New DataTable()
             da.Fill(dt)
+
+            ' Brutto wird nicht mehr per SQL-Formel berechnet (die kannte kein preisart und
+            ' rundete Netto vor der Summenbildung - siehe BerechneBruttoAusDb), sondern über
+            ' dieselbe zentrale Funktion, die auch die PDF-Erzeugung speist. So stimmt der
+            ' Archiv-Betrag garantiert mit dem auf der Rechnung gedruckten Betrag überein.
+            dt.Columns.Add("Brutto", GetType(Decimal))
+            For Each row As DataRow In dt.Rows
+                row("Brutto") = BerechneBruttoAusDb(conn, CInt(row("id")))
+            Next
 
             dgvArchiv.DataSource = dt
             If dgvArchiv.Columns.Contains("id") Then dgvArchiv.Columns("id").Visible = False
