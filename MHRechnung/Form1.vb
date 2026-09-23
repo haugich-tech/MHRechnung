@@ -126,6 +126,10 @@ Public Class Form1
     Private txtE_Speicherpfad As New TextBox()
     Private txtE_DbPfad As New TextBox() With {.ReadOnly = True}
 
+    Private chkE_DriveAktiv As New CheckBox()
+    Private txtE_DriveUrl As New TextBox()
+    Private txtE_DriveGeheimwort As New TextBox() With {.PasswordChar = "*"c}
+
     ' --- Elemente für Tab 6 (Archiv) ---
     Private dgvArchiv As New DataGridView()
     Private pnlArchivDetails As New FlowLayoutPanel()
@@ -387,6 +391,10 @@ Public Class Form1
 
     Private Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs) Handles MyBase.FormClosing
         SendeDatenbankBackup(False)
+        ' Läuft höchstens 1x/Tag (siehe DriveBackup.SichereDatenbank) - Fehler werden hier
+        ' bewusst nicht gemeldet, da das Programm gerade beendet wird; über den Button in
+        ' den Einstellungen lässt sich die Sicherung jederzeit manuell nachholen.
+        DriveBackup.SichereDatenbank(manuell:=False)
     End Sub
 
     ' =========================================================================
@@ -1414,9 +1422,18 @@ Public Class Form1
 
         LadeStapelverarbeitung()
 
+        ' Neue Rechnungs-PDFs (falls Google-Drive-Sicherung aktiviert ist) gleich nach dem
+        ' Verarbeiten sichern, statt erst beim Beenden - kostet nichts Zusätzliches, da
+        ' ohnehin nur die neu hinzugekommenen Dateien hochgeladen werden (siehe DriveBackup).
+        Dim driveFehlerListe As List(Of String) = DriveBackup.SichereNeuePdfs(baseDir)
+
         ' --- Abschlussbericht ---
         Dim bericht As String = $"{verarbeiteteRechnungen.Count} von {anzahl} Rechnungen wurden erfolgreich verarbeitet." & vbCrLf &
                                 $"{anzahlMails} E-Mails wurden versendet."
+        If driveFehlerListe.Count > 0 Then
+            bericht &= vbCrLf & vbCrLf & "ℹ Einige Rechnungs-PDFs konnten nicht auf Google Drive gesichert werden (wird beim nächsten Mal automatisch nachgeholt):" & vbCrLf &
+                       String.Join(vbCrLf, driveFehlerListe)
+        End If
         If archivFehlerListe.Count > 0 Then
             bericht &= vbCrLf & vbCrLf & "ℹ Archiv-Kopie(n) konnten nicht gesendet werden (die Rechnung selbst wurde trotzdem korrekt versendet):" & vbCrLf &
                        String.Join(vbCrLf, archivFehlerListe)
@@ -2187,6 +2204,9 @@ Public Class Form1
                         Case "smtp_user" : txtE_SmtpUser.Text = val
                         Case "smtp_pass" : txtE_SmtpPass.Text = val
                         Case "speicherpfad" : txtE_Speicherpfad.Text = val
+                        Case "backup_drive_aktiv" : chkE_DriveAktiv.Checked = (val = "True")
+                        Case "backup_drive_url" : txtE_DriveUrl.Text = val
+                        Case "backup_drive_geheimwort" : txtE_DriveGeheimwort.Text = val
                     End Select
                 End While
             End Using
@@ -2264,6 +2284,9 @@ Public Class Form1
                 SpeichereEinstellungDB(conn, "smtp_user", txtE_SmtpUser.Text.Trim())
                 SpeichereEinstellungDB(conn, "smtp_pass", txtE_SmtpPass.Text)
                 SpeichereEinstellungDB(conn, "speicherpfad", txtE_Speicherpfad.Text.Trim())
+                SpeichereEinstellungDB(conn, "backup_drive_aktiv", chkE_DriveAktiv.Checked.ToString())
+                SpeichereEinstellungDB(conn, "backup_drive_url", txtE_DriveUrl.Text.Trim())
+                SpeichereEinstellungDB(conn, "backup_drive_geheimwort", txtE_DriveGeheimwort.Text)
             End Using
 
             Dim hinweis As String = ""
@@ -3271,14 +3294,43 @@ Public Class Form1
         AddHandler btnDbAendern.Click, AddressOf BtnDbPfadAendern_Click
         gbSystem.Controls.Add(btnDbAendern)
 
+        ' 7. Google-Drive-Sicherung
+        ' Sichert (unabhängig von GitHub, wo nur der Programmcode liegt) die Datenbank und
+        ' alle erzeugten Rechnungs-PDFs extern auf Google Drive, über ein selbst gehostetes
+        ' Google-Apps-Script als Empfänger (siehe google-apps-script/mhrechnung-backup-empfaenger.gs
+        ' im Projekt). Der Zielordner auf Drive wird automatisch aus der Steuernummer gebildet,
+        ' nicht frei eingetragen - so landen zwei Betriebe mit unterschiedlicher Steuernummer
+        ' nie versehentlich im selben Ordner, auch nicht bei einer separaten Programminstanz.
+        Dim gbDrive As New GroupBox With {.Text = "7. Google-Drive-Sicherung (Datenbank & Rechnungs-PDFs)", .Location = New Point(20, 1100), .Size = New Size(1050, 170)}
+        StyleGroupBox(gbDrive)
+
+        chkE_DriveAktiv.Text = "Automatische Sicherung auf Google Drive aktivieren"
+        chkE_DriveAktiv.Location = New Point(20, 28)
+        chkE_DriveAktiv.AutoSize = True
+        chkE_DriveAktiv.Font = FONT_NORMAL
+        chkE_DriveAktiv.ForeColor = CLR_TEXT_DUNKEL
+
+        ErstelleFeld(gbDrive, "Web-App-URL (aus Google Apps Script)", txtE_DriveUrl, 20, 58, 520)
+        ErstelleFeld(gbDrive, "Geheimwort", txtE_DriveGeheimwort, 560, 58, 300)
+
+        Dim btnDriveTest = MacheSekundaerButton("Verbindung testen", 200, 32)
+        btnDriveTest.Location = New Point(20, 118)
+        AddHandler btnDriveTest.Click, AddressOf BtnDriveTest_Click
+
+        Dim btnDriveJetzt = MacheSekundaerButton("💾  JETZT SICHERN (Datenbank + neue Rechnungen)", 420, 32)
+        btnDriveJetzt.Location = New Point(230, 118)
+        AddHandler btnDriveJetzt.Click, AddressOf BtnDriveJetzt_Click
+
+        gbDrive.Controls.AddRange({chkE_DriveAktiv, btnDriveTest, btnDriveJetzt})
+
         ' Speichern-Button
         Dim btnSpeichern = MachePrimaerButton("💾  EINSTELLUNGEN SPEICHERN", 270, 44)
-        btnSpeichern.Location = New Point(20, 1100)
+        btnSpeichern.Location = New Point(20, 1300)
         AddHandler btnSpeichern.Click, AddressOf BtnSpeichern_Einstellungen_Click
 
         ' Gefahrenzone
         Dim pnlGefahr As New Panel With {
-            .Location = New Point(20, 1165),
+            .Location = New Point(20, 1365),
             .Size = New Size(1050, 210),
             .BackColor = Color.FromArgb(255, 248, 248)
         }
@@ -3324,14 +3376,14 @@ Public Class Form1
 
         pnlGefahr.Controls.AddRange({txtStartReNr, lblHinweis, pnlTrennstrich2, chkSicherLoeschen, btnLoeschen})
 
-        pnlMain.Controls.AddRange({gbProg, gbFirma, gbBank, gbTexte, gbSmtp, gbSystem, btnSpeichern, pnlGefahr})
+        pnlMain.Controls.AddRange({gbProg, gbFirma, gbBank, gbTexte, gbSmtp, gbSystem, gbDrive, btnSpeichern, pnlGefahr})
 
-        ' Explizite Scroll-Größe: pnlGefahr (unterster Block) reicht bis Y=1340, mit ihrem
-        ' eigenen Rand ("Padding" von pnlMain) macht das rund 1370px Gesamthöhe. Ohne diese
+        ' Explizite Scroll-Größe: pnlGefahr (unterster Block) reicht bis Y=1540, mit ihrem
+        ' eigenen Rand ("Padding" von pnlMain) macht das rund 1605px Gesamthöhe. Ohne diese
         ' Angabe berechnet WinForms die AutoScroll-Größe bei absolut positionierten Controls
         ' nicht zuverlässig, wodurch die Gefahrenzone unten aus dem sichtbaren Tab herausragt,
         ' statt dass sich ein Scrollbalken zeigt.
-        pnlMain.AutoScrollMinSize = New Size(1100, 1405)
+        pnlMain.AutoScrollMinSize = New Size(1100, 1605)
 
         TabEinstellungen.Controls.Add(pnlMain)
     End Sub
@@ -3673,6 +3725,57 @@ Public Class Form1
     ' =========================================================================
     Private Sub BtnBackupManu_Click(sender As Object, e As EventArgs)
         SendeDatenbankBackup(True)
+    End Sub
+
+    Private Sub BtnDriveTest_Click(sender As Object, e As EventArgs)
+        Dim url As String = txtE_DriveUrl.Text.Trim()
+        Dim geheim As String = txtE_DriveGeheimwort.Text
+        If String.IsNullOrWhiteSpace(url) OrElse String.IsNullOrWhiteSpace(geheim) Then
+            MessageBox.Show("Bitte trage zuerst Web-App-URL und Geheimwort ein.", "Angaben fehlen", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        Me.Cursor = Cursors.WaitCursor
+        Dim fehler As String = "", ordnerName As String = ""
+        Dim ok As Boolean = DriveBackup.VerbindungTesten(url, geheim, fehler, ordnerName)
+        Me.Cursor = Cursors.Default
+
+        If ok Then
+            MessageBox.Show($"Verbindung erfolgreich!" & vbCrLf & vbCrLf & $"Sicherungsordner auf Drive (aus der Steuernummer gebildet): {ordnerName}", "Verbindung erfolgreich", MessageBoxButtons.OK, MessageBoxIcon.Information)
+        Else
+            MessageBox.Show("Verbindung fehlgeschlagen: " & fehler, "Fehler", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End If
+    End Sub
+
+    Private Sub BtnDriveJetzt_Click(sender As Object, e As EventArgs)
+        If Not DriveBackup.IstAktiviert() Then
+            MessageBox.Show("Bitte aktiviere zuerst die Google-Drive-Sicherung und speichere die Einstellungen.", "Nicht aktiviert", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+            Return
+        End If
+
+        Me.Cursor = Cursors.WaitCursor
+        Dim dbFehler As String = DriveBackup.SichereDatenbank(manuell:=True)
+
+        Dim baseDir As String = txtE_Speicherpfad.Text.Trim()
+        If String.IsNullOrWhiteSpace(baseDir) Then baseDir = "C:\MHRechnung"
+        Dim pdfFehlerListe As List(Of String) = DriveBackup.SichereNeuePdfs(baseDir)
+        Me.Cursor = Cursors.Default
+
+        Dim bericht As String = ""
+        If String.IsNullOrEmpty(dbFehler) Then
+            bericht &= "Datenbank erfolgreich gesichert." & vbCrLf
+        Else
+            bericht &= "⚠ Datenbank-Sicherung fehlgeschlagen: " & dbFehler & vbCrLf
+        End If
+
+        If pdfFehlerListe.Count = 0 Then
+            bericht &= "Alle Rechnungs-PDFs sind auf Drive auf dem aktuellen Stand."
+        Else
+            bericht &= vbCrLf & "⚠ Einige PDFs konnten nicht gesichert werden (werden beim nächsten Mal erneut versucht):" & vbCrLf &
+                       String.Join(vbCrLf, pdfFehlerListe)
+        End If
+
+        MessageBox.Show(bericht, "Google-Drive-Sicherung", MessageBoxButtons.OK, MessageBoxIcon.Information)
     End Sub
 
     Private Sub SendeDatenbankBackup(manuell As Boolean)

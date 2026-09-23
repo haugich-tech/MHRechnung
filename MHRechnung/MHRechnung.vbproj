@@ -181,6 +181,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="EmailManager.vb" />
+    <Compile Include="DriveBackup.vb" />
     <Compile Include="ERechnungsImporter.vb" />
     <Compile Include="LegFontResolver.vb" />
     <Compile Include="DatenbankManager.vb" />
