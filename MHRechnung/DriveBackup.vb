@@ -69,8 +69,10 @@ Public Class DriveBackup
     End Function
 
     Private Shared Function Md5Hex(bytes As Byte()) As String
-        Using md5 = MD5.Create()
-            Dim hash = md5.ComputeHash(bytes)
+        ' Variablenname bewusst nicht "md5" - VB.NET ist nicht case-sensitiv, das würde mit
+        ' dem Typnamen "MD5" kollidieren und die Typinferenz von "Using" zum Scheitern bringen.
+        Using hasher As MD5 = MD5.Create()
+            Dim hash = hasher.ComputeHash(bytes)
             Dim sb As New StringBuilder()
             For Each b In hash
                 sb.Append(b.ToString("x2"))
