@@ -201,19 +201,55 @@ Public Class DriveBackup
         End Try
     End Function
 
+    ''' <summary>Liest eine Datei robust ein: im Moment des Sicherns (beim Beenden des
+    ''' Programms) kann SQLite die Datenbankdatei noch ganz kurz offen halten, und über ein
+    ''' Netzlaufwerk (SMB) wird so eine Freigabe manchmal spürbar verzögert wirksam - beides
+    ''' führt zu "Datei wird von einem anderen Prozess verwendet". Öffnet deshalb mit
+    ''' möglichst freizügiger Freigabe (FileShare.ReadWrite, wir wollen ja nur lesen) und
+    ''' versucht es bei einer Sharing-Violation mit kurzer, steigender Pause erneut.</summary>
+    Private Shared Function LiesDateiMitWiederholung(pfad As String) As Byte()
+        Const versucheMax As Integer = 5
+        Dim letzterFehler As IOException = Nothing
+        For versuch As Integer = 1 To versucheMax
+            Try
+                Using fs As New FileStream(pfad, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)
+                    Dim bytes(CInt(fs.Length) - 1) As Byte
+                    Dim gelesen As Integer = 0
+                    While gelesen < bytes.Length
+                        Dim n As Integer = fs.Read(bytes, gelesen, bytes.Length - gelesen)
+                        If n = 0 Then Exit While
+                        gelesen += n
+                    End While
+                    Return bytes
+                End Using
+            Catch ex As IOException
+                letzterFehler = ex
+                If versuch < versucheMax Then System.Threading.Thread.Sleep(500 * versuch)
+            End Try
+        Next
+        Throw letzterFehler
+    End Function
+
     ''' <summary>Sichert die Datenbank als rohe .sqlite-Datei (Rotation auf die neuesten 10
     ''' Versionen erledigt das Google-Skript). Läuft automatisch (manuell:=False) höchstens
     ''' 1x/Tag, damit bei häufigem Öffnen/Schließen nicht sofort alle 10 Plätze verbraucht
     ''' sind. Gibt bei Erfolg "" zurück, sonst einen Fehlertext.</summary>
     Public Shared Function SichereDatenbank(manuell As Boolean) As String
         Try
+            Dim url As String = "", geheim As String = "", ordner As String = "", kennung As String = ""
+
+            ' Verbindung nur für das Lesen der Einstellungen offen halten und danach wieder
+            ' schließen - sonst konkurriert unsere eigene, noch offene SQLiteConnection mit
+            ' dem gleich folgenden direkten Lesen derselben Datei über FileStream und
+            ' erzeugt selbst genau die "Datei wird von einem anderen Prozess verwendet"-
+            ' Meldung, die eigentlich vermieden werden soll.
             Using conn = DatenbankManager.HoleVerbindung()
                 If LiesEinstellung(conn, "backup_drive_aktiv", "False") <> "True" Then
                     Return If(manuell, "Die Google-Drive-Sicherung ist nicht aktiviert.", "")
                 End If
 
-                Dim url As String = LiesEinstellung(conn, "backup_drive_url", "")
-                Dim geheim As String = LiesEinstellung(conn, "backup_drive_geheimwort", "")
+                url = LiesEinstellung(conn, "backup_drive_url", "")
+                geheim = LiesEinstellung(conn, "backup_drive_geheimwort", "")
                 If String.IsNullOrWhiteSpace(url) OrElse String.IsNullOrWhiteSpace(geheim) Then
                     Return If(manuell, "Bitte trage zuerst Web-App-URL und Geheimwort ein.", "")
                 End If
@@ -225,27 +261,30 @@ Public Class DriveBackup
                     End If
                 End If
 
-                Dim ordner As String = SicherungsOrdnername(conn)
-                Dim kennung As String = HoleOderErzeugeKennung(conn)
-                Dim dbBytes As Byte() = File.ReadAllBytes(DatenbankManager.DatenbankPfad)
-                Dim dateiname As String = $"mhrechnung-db-{DateTime.Now:yyyy-MM-dd_HHmm}.sqlite"
-
-                Dim json As String = BaueJson(New List(Of (String, String)) From {
-                    ("geheim", geheim), ("aktion", "sichern_db"), ("ordner", ordner), ("kennung", kennung),
-                    ("name", dateiname), ("daten", Convert.ToBase64String(dbBytes)), ("md5", Md5Hex(dbBytes))
-                }, New List(Of (String, String)) From {("groesse", dbBytes.Length.ToString())})
-
-                Dim httpFehler As String = ""
-                Dim antwort As String = PosteAnDrive(url, json, httpFehler)
-                If Not String.IsNullOrEmpty(httpFehler) Then Return httpFehler
-                If Not JsonWertOk(antwort) Then
-                    Dim f As String = JsonFehlertext(antwort)
-                    Return If(String.IsNullOrWhiteSpace(f), "Unbekannter Fehler bei der Drive-Sicherung.", f)
-                End If
-
-                SchreibeEinstellung(conn, "backup_drive_letzte_db_sicherung", DateTime.Now.ToString("yyyy-MM-dd"))
-                Return ""
+                ordner = SicherungsOrdnername(conn)
+                kennung = HoleOderErzeugeKennung(conn)
             End Using
+
+            Dim dbBytes As Byte() = LiesDateiMitWiederholung(DatenbankManager.DatenbankPfad)
+            Dim dateiname As String = $"mhrechnung-db-{DateTime.Now:yyyy-MM-dd_HHmm}.sqlite"
+
+            Dim json As String = BaueJson(New List(Of (String, String)) From {
+                ("geheim", geheim), ("aktion", "sichern_db"), ("ordner", ordner), ("kennung", kennung),
+                ("name", dateiname), ("daten", Convert.ToBase64String(dbBytes)), ("md5", Md5Hex(dbBytes))
+            }, New List(Of (String, String)) From {("groesse", dbBytes.Length.ToString())})
+
+            Dim httpFehler As String = ""
+            Dim antwort As String = PosteAnDrive(url, json, httpFehler)
+            If Not String.IsNullOrEmpty(httpFehler) Then Return httpFehler
+            If Not JsonWertOk(antwort) Then
+                Dim f As String = JsonFehlertext(antwort)
+                Return If(String.IsNullOrWhiteSpace(f), "Unbekannter Fehler bei der Drive-Sicherung.", f)
+            End If
+
+            Using conn = DatenbankManager.HoleVerbindung()
+                SchreibeEinstellung(conn, "backup_drive_letzte_db_sicherung", DateTime.Now.ToString("yyyy-MM-dd"))
+            End Using
+            Return ""
         Catch ex As Exception
             Return ex.Message
         End Try
