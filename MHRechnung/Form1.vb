@@ -322,7 +322,7 @@ Public Class Form1
             PdfSharp.Fonts.GlobalFontSettings.FontResolver = New LegFontResolver()
         End If
 
-        Me.Text = "MHRechnung — Rechnungs-Manager  v1.0.5 (2026-09-26)"
+        Me.Text = "MHRechnung — Rechnungs-Manager  v1.0.6 (2026-09-26)"
         Me.Size = New Size(1400, 950)
         Me.StartPosition = FormStartPosition.CenterScreen
         Me.Font = FONT_NORMAL
@@ -364,7 +364,7 @@ Public Class Form1
         LadeEinstellungen()
 
         If Not String.IsNullOrWhiteSpace(txtE_FirmaName.Text) Then
-            Me.Text = txtE_FirmaName.Text & " — Rechnungs-Manager  v1.0.5 (2026-09-26)"
+            Me.Text = txtE_FirmaName.Text & " — Rechnungs-Manager  v1.0.6 (2026-09-26)"
         End If
 
         If Not ToolPfade.SindAlleToolsBereit() Then

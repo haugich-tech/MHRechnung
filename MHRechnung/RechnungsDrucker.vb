@@ -551,22 +551,31 @@ Public Class RechnungsDrucker
                             qrBitmap.Save(qrTempPfad, System.Drawing.Imaging.ImageFormat.Png)
                         End Using
 
-                        Dim qrGroesse As Double = 70
+                        ' Ganzer Block ca. 10% größer als zuvor (QR 70->77pt, Schrift 7->7,7pt,
+                        ' Zeilenabstand 9->10pt) und mit Rahmen samt kleinem Innenabstand (Polster).
+                        Dim qrGroesse As Double = 77
+                        Dim rahmenPolster As Double = 7
+                        Dim qrX As Double = mL + rahmenPolster
+                        Dim qrY As Double = sY + rahmenPolster
                         Dim qrImg As XImage = XImage.FromFile(qrTempPfad)
-                        currentGfx.DrawImage(qrImg, mL, sY, qrGroesse, qrGroesse)
+                        currentGfx.DrawImage(qrImg, qrX, qrY, qrGroesse, qrGroesse)
 
-                        Dim zdY As Double = sY + qrGroesse + 8
-                        Dim zdMaxWidth As Double = sLblX - mL - 5
-                        Dim fZahldaten As New XFont("Arial", 7, XFontStyleEx.Regular)
-                        zdY = DrawWrappedText(currentGfx, "Kontoinhaber: " & firmaName, fZahldaten, bBlack, mL, zdY, zdMaxWidth, 9)
-                        zdY = DrawWrappedText(currentGfx, "IBAN: " & firmaIBAN, fZahldaten, bBlack, mL, zdY, zdMaxWidth, 9)
-                        zdY = DrawWrappedText(currentGfx, "BIC: " & firmaBIC, fZahldaten, bBlack, mL, zdY, zdMaxWidth, 9)
-                        zdY = DrawWrappedText(currentGfx, "Betrag: " & bruttoGesamt.ToString("N2") & " €", fZahldaten, bBlack, mL, zdY, zdMaxWidth, 9)
-                        zdY = DrawWrappedText(currentGfx, "Verwendungszweck: re-" & reNr, fZahldaten, bBlack, mL, zdY, zdMaxWidth, 9)
-                        zdY += 3
-                        zdY = DrawWrappedText(currentGfx, "Einfach mit der Banking-App scannen", fTiny, bGray, mL, zdY, zdMaxWidth, 9)
+                        Dim zdY As Double = qrY + qrGroesse + 8
+                        Dim rahmenRechts As Double = sLblX - 10
+                        Dim zdMaxWidth As Double = rahmenRechts - qrX - rahmenPolster
+                        Dim fZahldaten As New XFont("Arial", 7.7, XFontStyleEx.Regular)
+                        zdY = DrawWrappedText(currentGfx, "Kontoinhaber: " & firmaName, fZahldaten, bBlack, qrX, zdY, zdMaxWidth, 10)
+                        zdY = DrawWrappedText(currentGfx, "IBAN: " & firmaIBAN, fZahldaten, bBlack, qrX, zdY, zdMaxWidth, 10)
+                        zdY = DrawWrappedText(currentGfx, "BIC: " & firmaBIC, fZahldaten, bBlack, qrX, zdY, zdMaxWidth, 10)
+                        zdY = DrawWrappedText(currentGfx, "Betrag: " & bruttoGesamt.ToString("N2") & " €", fZahldaten, bBlack, qrX, zdY, zdMaxWidth, 10)
+                        zdY = DrawWrappedText(currentGfx, "Verwendungszweck: re-" & reNr, fZahldaten, bBlack, qrX, zdY, zdMaxWidth, 10)
+                        zdY += 4
+                        zdY = DrawWrappedText(currentGfx, "Einfach mit der Banking-App scannen", fZahldaten, bGray, qrX, zdY, zdMaxWidth, 10)
 
-                        qrBlockBottomY = zdY
+                        Dim rahmenUnten As Double = zdY + rahmenPolster - 4
+                        currentGfx.DrawRectangle(penBlack, mL, sY, rahmenRechts - mL, rahmenUnten - sY)
+
+                        qrBlockBottomY = rahmenUnten
                     End Using
                 Catch ex As Exception
                     ' Temporäre Diagnose: der eigentliche Fehler wird sonst hier lautlos
