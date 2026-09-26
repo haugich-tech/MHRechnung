@@ -593,19 +593,25 @@ Public Class RechnungsDrucker
                         Dim qrBildY As Double = qrY - 10
                         currentGfx.DrawImage(qrImg, qrX, qrBildY, qrGroesse, qrGroesse)
 
-                        ' Zahlungsdaten rechts neben dem QR-Code
+                        ' Zahlungsdaten rechts neben dem QR-Code. Schriftgröße 8pt statt 7,7pt -
+                        ' entspricht damit der Größe, die im restlichen Dokument für Zusatzinfos
+                        ' (nicht Hauptinhalt) verwendet wird (fSmall/fSmallB), z.B. Kd.-Steuernr.,
+                        ' BIC, Bank im Kopf-Info-Block. Zeilenabstand dazu passend auf 9pt.
                         Dim zdX As Double = qrX + qrGroesse + 6
-                        Dim zdY As Double = qrY
+                        Dim zdLineHeight As Double = 9
+                        ' Eine Leerzeile vor "Kontoinhaber", damit der (kürzere) Textblock ungefähr
+                        ' mittig neben dem höheren QR-Code steht, statt oben bündig damit.
+                        Dim zdY As Double = qrY + zdLineHeight
                         Dim zdMaxWidth As Double = rahmenRechts - rahmenPolster - zdX
-                        Dim fZahldaten As New XFont("Arial", 7.7, XFontStyleEx.Regular)
-                        zdY = DrawWrappedText(currentGfx, "Kontoinhaber: " & firmaName, fZahldaten, bBlack, zdX, zdY, zdMaxWidth, 10)
-                        zdY = DrawWrappedText(currentGfx, "IBAN: " & firmaIBAN, fZahldaten, bBlack, zdX, zdY, zdMaxWidth, 10)
-                        zdY = DrawWrappedText(currentGfx, "BIC: " & firmaBIC, fZahldaten, bBlack, zdX, zdY, zdMaxWidth, 10)
-                        zdY = DrawWrappedText(currentGfx, "Betrag: " & bruttoGesamt.ToString("N2") & " €", fZahldaten, bBlack, zdX, zdY, zdMaxWidth, 10)
+                        Dim fZahldaten As New XFont("Arial", 8, XFontStyleEx.Regular)
+                        zdY = DrawWrappedText(currentGfx, "Kontoinhaber: " & firmaName, fZahldaten, bBlack, zdX, zdY, zdMaxWidth, zdLineHeight)
+                        zdY = DrawWrappedText(currentGfx, "IBAN: " & firmaIBAN, fZahldaten, bBlack, zdX, zdY, zdMaxWidth, zdLineHeight)
+                        zdY = DrawWrappedText(currentGfx, "BIC: " & firmaBIC, fZahldaten, bBlack, zdX, zdY, zdMaxWidth, zdLineHeight)
+                        zdY = DrawWrappedText(currentGfx, "Betrag: " & bruttoGesamt.ToString("N2") & " €", fZahldaten, bBlack, zdX, zdY, zdMaxWidth, zdLineHeight)
 
                         ' Bildunterschrift über die volle Breite unter QR-Code + Zahlungsdaten
                         Dim capY As Double = Math.Max(qrY + qrGroesse, zdY) + 6
-                        capY = DrawWrappedText(currentGfx, "Einfach mit der Banking-App scannen", fZahldaten, bGray, qrX, capY, rahmenRechts - rahmenPolster - qrX, 10)
+                        capY = DrawWrappedText(currentGfx, "Einfach mit der Banking-App scannen", fZahldaten, bGray, qrX, capY, rahmenRechts - rahmenPolster - qrX, zdLineHeight)
 
                         Dim rahmenUnten As Double = capY + rahmenPolster - 4
                         ' Abgerundete Ecken statt eckigem Rahmen, etwas dicker als die übrigen
