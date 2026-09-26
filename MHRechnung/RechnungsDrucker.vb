@@ -4,6 +4,7 @@ Imports PdfSharp.Drawing
 Imports PdfSharp.Fonts
 Imports System.IO
 Imports System.Data.SQLite
+Imports QRCoder
 
 Public Class RechnungsDrucker
 
@@ -232,6 +233,9 @@ Public Class RechnungsDrucker
         Dim zahlungsText As String = basisText.Replace("[RE-nummer]", "re-" & reNr)
 
         ' ── 3. PDF ZEICHNEN (MULTI-PAGE LOGIK) ────────────────────────────────
+        ' Temp-Datei für den GiroCode (falls erzeugt) - wird erst nach document.Save
+        ' aufgeräumt, siehe ganz unten.
+        Dim qrTempPfad As String = Nothing
         Using document As New PdfDocument()
             Dim pages As New List(Of PdfPage)
             Dim gfxList As New List(Of XGraphics)
@@ -514,6 +518,54 @@ Public Class RechnungsDrucker
             ' NEU: Eine feste, unsichtbare rechte Kante für die Wörter (kurz nach dem "=" Zeichen)
             Dim labelAlignX As Double = sEqX + 15
 
+            ' --- GIROCODE (SEPA-Überweisungs-QR-Code, EPC-Standard) + Zahlungsdaten als Text ---
+            ' Links neben dem Summenblock ist bis sLblX (mL+200) komplett freier Platz - dort
+            ' passt der QR-Code samt Zahlungsdaten und Bildunterschrift bequem rein. qrBlockBottomY
+            ' wird weiter unten mit der Endposition der rechten Spalte verglichen (Math.Max),
+            ' damit der folgende Zahlungstext nie mit diesem Block kollidiert, egal welche Spalte
+            ' im Einzelfall höher wird (z.B. je nachdem, wie viele MwSt-Sätze vorkommen).
+            ' Nur bei echten, positiven Rechnungen sinnvoll (nicht bei Gutschriften/0€-Rechnungen -
+            ' der QR-Code fordert den KUNDEN zum Zahlen auf). Scheitert die Erzeugung aus
+            ' irgendeinem Grund, darf das die restliche Rechnung nicht verhindern - deshalb
+            ' Try/Catch ohne Weitergabe, analog zum Logo weiter oben.
+            Dim qrBlockBottomY As Double = sY
+            If bruttoGesamt > 0 AndAlso Not String.IsNullOrWhiteSpace(firmaIBAN) AndAlso Not String.IsNullOrWhiteSpace(firmaBIC) AndAlso Not String.IsNullOrWhiteSpace(firmaName) Then
+                Try
+                    Dim girocode As New PayloadGenerator.Girocode(
+                        iban:=firmaIBAN.Replace(" ", ""),
+                        bic:=firmaBIC.Replace(" ", ""),
+                        name:=firmaName,
+                        amount:=bruttoGesamt,
+                        remittanceInformation:="re-" & reNr)
+
+                    Using qrData = QRCodeGenerator.GenerateQrCode(girocode)
+                        Dim pngRenderer As New PngByteQRCode(qrData)
+                        Dim qrBytes As Byte() = pngRenderer.GetGraphic(20)
+
+                        qrTempPfad = Path.Combine(Path.GetTempPath(), $"mhrechnung_qr_{reNr}.png")
+                        File.WriteAllBytes(qrTempPfad, qrBytes)
+
+                        Dim qrGroesse As Double = 70
+                        Dim qrImg As XImage = XImage.FromFile(qrTempPfad)
+                        currentGfx.DrawImage(qrImg, mL, sY, qrGroesse, qrGroesse)
+
+                        Dim zdY As Double = sY + qrGroesse + 8
+                        Dim zdMaxWidth As Double = sLblX - mL - 5
+                        Dim fZahldaten As New XFont("Arial", 7, XFontStyleEx.Regular)
+                        zdY = DrawWrappedText(currentGfx, "Kontoinhaber: " & firmaName, fZahldaten, bBlack, mL, zdY, zdMaxWidth, 9)
+                        zdY = DrawWrappedText(currentGfx, "IBAN: " & firmaIBAN, fZahldaten, bBlack, mL, zdY, zdMaxWidth, 9)
+                        zdY = DrawWrappedText(currentGfx, "BIC: " & firmaBIC, fZahldaten, bBlack, mL, zdY, zdMaxWidth, 9)
+                        zdY = DrawWrappedText(currentGfx, "Betrag: " & bruttoGesamt.ToString("N2") & " €", fZahldaten, bBlack, mL, zdY, zdMaxWidth, 9)
+                        zdY = DrawWrappedText(currentGfx, "Verwendungszweck: re-" & reNr, fZahldaten, bBlack, mL, zdY, zdMaxWidth, 9)
+                        zdY += 3
+                        zdY = DrawWrappedText(currentGfx, "Einfach mit der Banking-App scannen", fTiny, bGray, mL, zdY, zdMaxWidth, 9)
+
+                        qrBlockBottomY = zdY
+                    End Using
+                Catch
+                End Try
+            End If
+
             DrawRight(currentGfx, "Nettosumme", fBold, bBlack, labelAlignX, sY)
             DrawRight(currentGfx, nettoGesamt.ToString("N2") & " €", fBold, bBlack, sGesX, sY)
             sY += 16
@@ -544,6 +596,10 @@ Public Class RechnungsDrucker
             DrawRight(currentGfx, summenLabel, fBold, bBlack, labelAlignX, sY)
             DrawRight(currentGfx, bruttoGesamt.ToString("N2") & " €", fBold, bBlack, sGesX, sY)
             sY += 25
+
+            ' Verhindert eine Überlappung mit dem GiroCode-Block links, falls der (z.B. mit
+            ' Zahlungsdaten-Text) höher wird als der Summenblock rechts.
+            sY = Math.Max(sY, qrBlockBottomY + 10)
 
             ' --- ZAHLUNGS-/ GUTSCHRIFTS-TEXT ---
             If Not String.IsNullOrWhiteSpace(zahlungsText) Then
@@ -591,6 +647,10 @@ Public Class RechnungsDrucker
 
             document.Save(dateiName)
         End Using
+
+        If qrTempPfad IsNot Nothing Then
+            Try : File.Delete(qrTempPfad) : Catch : End Try
+        End If
     End Sub
 
     ' Formatiert einen MwSt-Satz für die PDF-Anzeige, z.B. 7,8 -> "7,8%"
