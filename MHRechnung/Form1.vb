@@ -164,6 +164,35 @@ Public Class Form1
         Return Decimal.TryParse(s, Globalization.NumberStyles.Number, Globalization.CultureInfo.InvariantCulture, wert)
     End Function
 
+    ''' <summary>KeyPress-Handler für das Mengenfeld: verhindert mehr als 2 Nachkommastellen
+    ''' (egal ob Komma oder Punkt als Trennzeichen), simuliert dafür den Text, der nach der
+    ''' Eingabe entstehen würde (inkl. einer evtl. markierten Auswahl), statt nur die
+    ''' Cursor-Position separat zu betrachten - robuster bei Einfügen/Ersetzen mitten im Text.</summary>
+    Private Shared Sub BeschraenkeMengeAufZweiNachkommastellen(sender As Object, e As KeyPressEventArgs)
+        Dim txt As TextBox = DirectCast(sender, TextBox)
+        Dim ch As Char = e.KeyChar
+
+        If Char.IsControl(ch) Then Return
+
+        If Not Char.IsDigit(ch) AndAlso ch <> ","c AndAlso ch <> "."c Then
+            e.Handled = True
+            Return
+        End If
+
+        Dim vorher As String = txt.Text.Remove(txt.SelectionStart, txt.SelectionLength)
+        Dim ergebnis As String = vorher.Insert(txt.SelectionStart, ch)
+
+        If (ch = ","c OrElse ch = "."c) AndAlso ergebnis.ToCharArray().Count(Function(c) c = ","c OrElse c = "."c) > 1 Then
+            e.Handled = True
+            Return
+        End If
+
+        Dim trennzeichenIndex As Integer = ergebnis.IndexOfAny({","c, "."c})
+        If trennzeichenIndex >= 0 AndAlso ergebnis.Length - trennzeichenIndex - 1 > 2 Then
+            e.Handled = True
+        End If
+    End Sub
+
     ' =========================================================================
     ' KONFIGURIERBARE MwSt-SÄTZE (§24 UStG Durchschnittssätze - in Einstellungen änderbar)
     ' =========================================================================
@@ -323,7 +352,7 @@ Public Class Form1
             PdfSharp.Fonts.GlobalFontSettings.FontResolver = New LegFontResolver()
         End If
 
-        Me.Text = "MHRechnung — Rechnungs-Manager  v1.0.11 (2026-09-26)"
+        Me.Text = "MHRechnung — Rechnungs-Manager  v1.0.12 (2026-09-26)"
         Me.Size = New Size(1400, 950)
         Me.StartPosition = FormStartPosition.CenterScreen
         Me.Font = FONT_NORMAL
@@ -365,7 +394,7 @@ Public Class Form1
         LadeEinstellungen()
 
         If Not String.IsNullOrWhiteSpace(txtE_FirmaName.Text) Then
-            Me.Text = txtE_FirmaName.Text & " — Rechnungs-Manager  v1.0.11 (2026-09-26)"
+            Me.Text = txtE_FirmaName.Text & " — Rechnungs-Manager  v1.0.12 (2026-09-26)"
         End If
 
         If Not ToolPfade.SindAlleToolsBereit() Then
@@ -2833,6 +2862,11 @@ Public Class Form1
         btnDel.FlatAppearance.BorderSize = 0
         btnDel.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 220, 220)
 
+        ' Verhindert, dass mehr als 2 Nachkommastellen bei der Menge eingegeben werden können -
+        ' vorher konnte man z.B. "1,235" eintippen, das intern exakt so gerechnet wurde, aber in
+        ' der Spalte nur gerundet auf 2 Stellen ("1,24") angezeigt wurde. Das sah wie ein
+        ' Rechenfehler aus, war aber nur eine Anzeige, die mehr Präzision zuließ als sie zeigte.
+        AddHandler txtAnzahl.KeyPress, AddressOf BeschraenkeMengeAufZweiNachkommastellen
         AddHandler txtAnzahl.TextChanged, AddressOf BerechneSummenTab1
         AddHandler txtPreisNetto.TextChanged, AddressOf BerechneSummenTab1
         AddHandler txtPreisBrutto.TextChanged, AddressOf BerechneSummenTab1
