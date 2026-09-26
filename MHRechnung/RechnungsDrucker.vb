@@ -539,11 +539,17 @@ Public Class RechnungsDrucker
                         remittanceInformation:="re-" & reNr)
 
                     Using qrData = QRCodeGenerator.GenerateQrCode(girocode)
-                        Dim pngRenderer As New PngByteQRCode(qrData)
-                        Dim qrBytes As Byte() = pngRenderer.GetGraphic(20)
-
-                        qrTempPfad = Path.Combine(Path.GetTempPath(), $"mhrechnung_qr_{reNr}.png")
-                        File.WriteAllBytes(qrTempPfad, qrBytes)
+                        ' PngByteQRCode (QRCoders eigener, minimaler PNG-Encoder) erzeugt eine
+                        ' PNG-Variante, die PdfSharps XImage.FromFile nicht als gültiges
+                        ' Bildformat erkennt ("Unsupported image format"). Über den
+                        ' System.Drawing.Bitmap-Renderer + GDI+ läuft es über den ganz normalen
+                        ' Windows-PNG-Encoder, den PdfSharp garantiert lesen kann - genau wie
+                        ' beim Firmenlogo weiter oben, das denselben Weg (Datei -> XImage.FromFile)
+                        ' nimmt.
+                        Using qrBitmap As System.Drawing.Bitmap = New QRCode(qrData).GetGraphic(20)
+                            qrTempPfad = Path.Combine(Path.GetTempPath(), $"mhrechnung_qr_{reNr}.png")
+                            qrBitmap.Save(qrTempPfad, System.Drawing.Imaging.ImageFormat.Png)
+                        End Using
 
                         Dim qrGroesse As Double = 70
                         Dim qrImg As XImage = XImage.FromFile(qrTempPfad)
