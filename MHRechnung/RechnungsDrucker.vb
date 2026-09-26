@@ -562,7 +562,16 @@ Public Class RechnungsDrucker
 
                         qrBlockBottomY = zdY
                     End Using
-                Catch
+                Catch ex As Exception
+                    ' Temporäre Diagnose: der eigentliche Fehler wird sonst hier lautlos
+                    ' verschluckt (wie beim Logo weiter oben) - bis der GiroCode zuverlässig
+                    ' läuft, wird er zusätzlich in eine Textdatei geschrieben, die man einfach
+                    ' nachschauen kann, statt raten zu müssen.
+                    Try
+                        File.WriteAllText(Path.Combine(Path.GetTempPath(), "mhrechnung_qr_fehler.txt"),
+                            $"{DateTime.Now:dd.MM.yyyy HH:mm:ss} - Rechnung {reNr}:" & vbCrLf & ex.ToString())
+                    Catch
+                    End Try
                 End Try
             End If
 
