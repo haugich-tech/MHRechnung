@@ -576,12 +576,22 @@ Public Class RechnungsDrucker
                         Dim qrBlockTopY As Double = sY
                         Dim qrGroesse As Double = 77
                         Dim rahmenPolster As Double = 7
-                        Dim rahmenRechts As Double = sLblX - 5
+                        ' Bis mL+300 ist noch reichlich Platz frei - "Bruttosumme"/"Rechnungsbetrag"
+                        ' stehen rechtsbündig erst ab ca. mL+433, ihre Beschriftung beginnt erst gut
+                        ' 90-100pt davor. Deutlich breiter als vorher (mL+200), damit z.B. die IBAN
+                        ' in einer Zeile Platz hat, ohne mit den Summenzeilen zu kollidieren.
+                        Dim rahmenRechts As Double = mL + 300
                         Dim qrX As Double = mL + rahmenPolster
                         ' Etwas mehr Luft oben zwischen Rahmen und Inhalt (ca. eine Leerzeile)
                         Dim qrY As Double = qrBlockTopY + rahmenPolster + 8
                         Dim qrImg As XImage = XImage.FromFile(qrTempPfad)
-                        currentGfx.DrawImage(qrImg, qrX, qrY, qrGroesse, qrGroesse)
+                        ' QR-Codes haben zwingend einen weißen Ruhebereich ("Quiet Zone") um das
+                        ' eigentliche Muster, der Teil der Bilddatei ist - dadurch wirkt das
+                        ' schwarze Muster optisch eingerückt, obwohl die Bildkante oben bündig mit
+                        ' dem Text ist. Das Bild selbst etwas nach oben schieben, um das
+                        ' auszugleichen; die Textspalte bleibt bei qrY (unverändert).
+                        Dim qrBildY As Double = qrY - 10
+                        currentGfx.DrawImage(qrImg, qrX, qrBildY, qrGroesse, qrGroesse)
 
                         ' Zahlungsdaten rechts neben dem QR-Code
                         Dim zdX As Double = qrX + qrGroesse + 6
