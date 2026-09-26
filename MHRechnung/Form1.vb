@@ -103,6 +103,7 @@ Public Class Form1
     Private txtE_FirmaOrt As New TextBox()
     Private txtE_FirmaMail As New TextBox()
     Private txtE_FirmaTel As New TextBox()
+    Private txtE_FirmaHandy As New TextBox()
     Private txtE_Steuer As New TextBox()
     Private txtE_UStId As New TextBox()
     Private txtE_IBAN As New TextBox()
@@ -322,7 +323,7 @@ Public Class Form1
             PdfSharp.Fonts.GlobalFontSettings.FontResolver = New LegFontResolver()
         End If
 
-        Me.Text = "MHRechnung — Rechnungs-Manager  v1.0.10 (2026-09-26)"
+        Me.Text = "MHRechnung — Rechnungs-Manager  v1.0.11 (2026-09-26)"
         Me.Size = New Size(1400, 950)
         Me.StartPosition = FormStartPosition.CenterScreen
         Me.Font = FONT_NORMAL
@@ -364,7 +365,7 @@ Public Class Form1
         LadeEinstellungen()
 
         If Not String.IsNullOrWhiteSpace(txtE_FirmaName.Text) Then
-            Me.Text = txtE_FirmaName.Text & " — Rechnungs-Manager  v1.0.10 (2026-09-26)"
+            Me.Text = txtE_FirmaName.Text & " — Rechnungs-Manager  v1.0.11 (2026-09-26)"
         End If
 
         If Not ToolPfade.SindAlleToolsBereit() Then
@@ -2193,6 +2194,7 @@ Public Class Form1
                         Case "firma_ort" : txtE_FirmaOrt.Text = val
                         Case "firma_email" : txtE_FirmaMail.Text = val
                         Case "firma_tel" : txtE_FirmaTel.Text = val
+                        Case "firma_handy" : txtE_FirmaHandy.Text = val
                         Case "firma_iban" : txtE_IBAN.Text = val
                         Case "firma_bic" : txtE_BIC.Text = val
                         Case "firma_bank" : txtE_Bank.Text = val
@@ -2267,6 +2269,7 @@ Public Class Form1
                 SpeichereEinstellungDB(conn, "firma_ort", txtE_FirmaOrt.Text.Trim())
                 SpeichereEinstellungDB(conn, "firma_email", txtE_FirmaMail.Text.Trim())
                 SpeichereEinstellungDB(conn, "firma_tel", txtE_FirmaTel.Text.Trim())
+                SpeichereEinstellungDB(conn, "firma_handy", txtE_FirmaHandy.Text.Trim())
                 SpeichereEinstellungDB(conn, "firma_iban", txtE_IBAN.Text.Trim().Replace(" ", ""))
                 SpeichereEinstellungDB(conn, "firma_bic", txtE_BIC.Text.Trim())
                 SpeichereEinstellungDB(conn, "firma_bank", txtE_Bank.Text.Trim())
@@ -3231,12 +3234,13 @@ Public Class Form1
         ' 2. Firmenprofil
         Dim gbFirma As New GroupBox With {.Text = "2. Firmenprofil & Kontakt", .Location = New Point(20, 255), .Size = New Size(1050, 105)}
         StyleGroupBox(gbFirma)
-        ErstelleFeld(gbFirma, "Firmenname (GbR)", txtE_FirmaName, 20, 28, 250)
-        ErstelleFeld(gbFirma, "Straße & Hausnummer", txtE_FirmaStrasse, 290, 28, 200)
-        ErstelleFeld(gbFirma, "PLZ", txtE_FirmaPLZ, 510, 28, 60)
-        ErstelleFeld(gbFirma, "Ort", txtE_FirmaOrt, 590, 28, 120)
-        ErstelleFeld(gbFirma, "Telefon", txtE_FirmaTel, 730, 28, 120)
-        ErstelleFeld(gbFirma, "E-Mail", txtE_FirmaMail, 870, 28, 160)
+        ErstelleFeld(gbFirma, "Firmenname (GbR)", txtE_FirmaName, 20, 28, 190)
+        ErstelleFeld(gbFirma, "Straße & Hausnummer", txtE_FirmaStrasse, 225, 28, 170)
+        ErstelleFeld(gbFirma, "PLZ", txtE_FirmaPLZ, 410, 28, 50)
+        ErstelleFeld(gbFirma, "Ort", txtE_FirmaOrt, 475, 28, 100)
+        ErstelleFeld(gbFirma, "Telefon", txtE_FirmaTel, 590, 28, 100)
+        ErstelleFeld(gbFirma, "Handy/WhatsApp", txtE_FirmaHandy, 705, 28, 130)
+        ErstelleFeld(gbFirma, "E-Mail", txtE_FirmaMail, 850, 28, 180)
 
         ' 3. Bank, Steuernummer & MwSt-Sätze
         Dim gbBank As New GroupBox With {.Text = "3. Bankverbindung, Steuernummer & MwSt-Sätze (§24 UStG)", .Location = New Point(20, 380), .Size = New Size(1050, 105)}

@@ -98,6 +98,7 @@ Public Class RechnungsDrucker
         Dim firmaOrt As String = GetSetting(s, "firma_ort", "")
         Dim firmaEmail As String = GetSetting(s, "firma_email", "")
         Dim firmaTel As String = GetSetting(s, "firma_tel", "")
+        Dim firmaHandy As String = GetSetting(s, "firma_handy", "")
         Dim firmaSteuer As String = GetSetting(s, "firma_steuer", "")
         Dim firmaIBAN As String = GetSetting(s, "firma_iban", "")
         Dim firmaBIC As String = GetSetting(s, "firma_bic", "")
@@ -273,6 +274,7 @@ Public Class RechnungsDrucker
             Dim fussZeile As String = String.Join("   ·   ",
                 {firmaName, firmaStrasse, (firmaPLZ & " " & firmaOrt).Trim(),
                  If(String.IsNullOrEmpty(firmaTel), "", "Tel " & firmaTel),
+                 If(String.IsNullOrEmpty(firmaHandy), "", "Handy/WhatsApp " & firmaHandy),
                  If(String.IsNullOrEmpty(firmaEmail), "", firmaEmail)}.Where(Function(t) Not String.IsNullOrWhiteSpace(t)))
 
             Dim drawFooter = Sub(g As XGraphics)
