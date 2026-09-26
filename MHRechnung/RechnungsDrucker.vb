@@ -4,6 +4,7 @@ Imports PdfSharp.Drawing
 Imports PdfSharp.Fonts
 Imports System.IO
 Imports System.Data.SQLite
+Imports QRCoder
 
 Public Class RechnungsDrucker
 
@@ -232,6 +233,9 @@ Public Class RechnungsDrucker
         Dim zahlungsText As String = basisText.Replace("[RE-nummer]", "re-" & reNr)
 
         ' ── 3. PDF ZEICHNEN (MULTI-PAGE LOGIK) ────────────────────────────────
+        ' Temp-Datei für den GiroCode (falls erzeugt) - wird erst nach document.Save
+        ' aufgeräumt, siehe ganz unten.
+        Dim qrTempPfad As String = Nothing
         Using document As New PdfDocument()
             Dim pages As New List(Of PdfPage)
             Dim gfxList As New List(Of XGraphics)
@@ -508,6 +512,39 @@ Public Class RechnungsDrucker
             ' --- SUMMENBLOCK (auf der letzten Seite) ---
             Dim sY As Double = tableBottom + 15
             Dim sLblX As Double = mL + 200
+
+            ' --- GIROCODE (SEPA-Überweisungs-QR-Code, EPC-Standard) ---
+            ' Links neben dem Summenblock ist bis sLblX (mL+200) komplett freier Platz - dort
+            ' passt der QR-Code samt kurzer Bildunterschrift bequem rein, ohne den Summenblock
+            ' zu verschieben oder die Seitenumbruch-Logik weiter oben anzufassen.
+            ' Nur bei echten, positiven Rechnungen sinnvoll (nicht bei Gutschriften/0€-Rechnungen -
+            ' der QR-Code fordert den KUNDEN zum Zahlen auf). Scheitert die Erzeugung aus
+            ' irgendeinem Grund, darf das die restliche Rechnung nicht verhindern - deshalb
+            ' Try/Catch ohne Weitergabe, analog zum Logo weiter oben.
+            If bruttoGesamt > 0 AndAlso Not String.IsNullOrWhiteSpace(firmaIBAN) AndAlso Not String.IsNullOrWhiteSpace(firmaBIC) AndAlso Not String.IsNullOrWhiteSpace(firmaName) Then
+                Try
+                    Dim girocode As New PayloadGenerator.Girocode(
+                        iban:=firmaIBAN.Replace(" ", ""),
+                        bic:=firmaBIC.Replace(" ", ""),
+                        name:=firmaName,
+                        amount:=bruttoGesamt,
+                        remittanceInformation:="re-" & reNr)
+
+                    Using qrData = QRCodeGenerator.GenerateQrCode(girocode)
+                        Dim pngRenderer As New PngByteQRCode(qrData)
+                        Dim qrBytes As Byte() = pngRenderer.GetGraphic(20)
+
+                        qrTempPfad = Path.Combine(Path.GetTempPath(), $"mhrechnung_qr_{reNr}.png")
+                        File.WriteAllBytes(qrTempPfad, qrBytes)
+
+                        Dim qrGroesse As Double = 85
+                        Dim qrImg As XImage = XImage.FromFile(qrTempPfad)
+                        currentGfx.DrawImage(qrImg, mL, sY, qrGroesse, qrGroesse)
+                        DrawWrappedText(currentGfx, "Mit der Banking-App scannen und bezahlen", fTiny, bGray, mL, sY + qrGroesse + 10, 150, 10)
+                    End Using
+                Catch
+                End Try
+            End If
             Dim sEqX As Double = mL + 418
             Dim sGesX As Double = mR
 
@@ -591,6 +628,10 @@ Public Class RechnungsDrucker
 
             document.Save(dateiName)
         End Using
+
+        If qrTempPfad IsNot Nothing Then
+            Try : File.Delete(qrTempPfad) : Catch : End Try
+        End If
     End Sub
 
     ' Formatiert einen MwSt-Satz für die PDF-Anzeige, z.B. 7,8 -> "7,8%"
