@@ -578,7 +578,8 @@ Public Class RechnungsDrucker
                         Dim rahmenPolster As Double = 7
                         Dim rahmenRechts As Double = sLblX - 5
                         Dim qrX As Double = mL + rahmenPolster
-                        Dim qrY As Double = qrBlockTopY + rahmenPolster
+                        ' Etwas mehr Luft oben zwischen Rahmen und Inhalt (ca. eine Leerzeile)
+                        Dim qrY As Double = qrBlockTopY + rahmenPolster + 8
                         Dim qrImg As XImage = XImage.FromFile(qrTempPfad)
                         currentGfx.DrawImage(qrImg, qrX, qrY, qrGroesse, qrGroesse)
 
@@ -597,7 +598,9 @@ Public Class RechnungsDrucker
                         capY = DrawWrappedText(currentGfx, "Einfach mit der Banking-App scannen", fZahldaten, bGray, qrX, capY, rahmenRechts - rahmenPolster - qrX, 10)
 
                         Dim rahmenUnten As Double = capY + rahmenPolster - 4
-                        currentGfx.DrawRectangle(penBlack, mL, qrBlockTopY, rahmenRechts - mL, rahmenUnten - qrBlockTopY)
+                        ' Abgerundete Ecken statt eckigem Rahmen, etwas dicker als die übrigen
+                        ' dünnen Linien der Rechnung (penThick statt penBlack).
+                        currentGfx.DrawRoundedRectangle(penThick, mL, qrBlockTopY, rahmenRechts - mL, rahmenUnten - qrBlockTopY, 10, 10)
 
                         qrBlockBottomY = rahmenUnten
                     End Using
