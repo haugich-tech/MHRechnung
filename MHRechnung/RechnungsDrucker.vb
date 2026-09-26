@@ -518,12 +518,34 @@ Public Class RechnungsDrucker
             ' NEU: Eine feste, unsichtbare rechte Kante für die Wörter (kurz nach dem "=" Zeichen)
             Dim labelAlignX As Double = sEqX + 15
 
+            DrawRight(currentGfx, "Nettosumme", fBold, bBlack, labelAlignX, sY)
+            DrawRight(currentGfx, nettoGesamt.ToString("N2") & " €", fBold, bBlack, sGesX, sY)
+            sY += 16
+
+            Dim sMwstLblX As Double = sLblX + 50
+
+            ' Steuern werden für jeden tatsächlich vorkommenden Satz angezeigt (nicht nur 7,8%/5,5%,
+            ' falls z.B. eine ältere Rechnung noch einen anderen Satz enthält)
+            For Each kv In nettoBasisProSatz.OrderByDescending(Function(x) x.Key)
+                If kv.Value <> 0 Then
+                    currentGfx.DrawString(FormatMwSt(kv.Key) & " MwSt auf", fSmall, bBlack, sMwstLblX, sY)
+                    DrawRight(currentGfx, kv.Value.ToString("N2") & " €", fSmall, bBlack, sEqX - 5, sY)
+                    currentGfx.DrawString("=", fSmall, bBlack, sEqX, sY)
+                    DrawRight(currentGfx, mwstBetragProSatz(kv.Key).ToString("N2") & " €", fSmall, bBlack, sGesX, sY)
+                    sY += 13
+                End If
+            Next
+
+            currentGfx.DrawLine(penBlack, sLblX, sY - 2, mR, sY - 2)
+            sY += 8
+
             ' --- GIROCODE (SEPA-Überweisungs-QR-Code, EPC-Standard) + Zahlungsdaten als Text ---
-            ' Links neben dem Summenblock ist bis sLblX (mL+200) komplett freier Platz - dort
-            ' passt der QR-Code samt Zahlungsdaten und Bildunterschrift bequem rein. qrBlockBottomY
-            ' wird weiter unten mit der Endposition der rechten Spalte verglichen (Math.Max),
-            ' damit der folgende Zahlungstext nie mit diesem Block kollidiert, egal welche Spalte
-            ' im Einzelfall höher wird (z.B. je nachdem, wie viele MwSt-Sätze vorkommen).
+            ' Beginnt erst auf Höhe "Bruttosumme" (sY an dieser Stelle), nicht ganz oben beim
+            ' Summenblock, und liegt links davon im freien Bereich bis sLblX (mL+200). QR-Code
+            ' links, Zahlungsdaten (Kontoinhaber/IBAN/BIC/Betrag) rechts daneben, Bildunterschrift
+            ' darunter über die volle Breite. qrBlockBottomY wird weiter unten mit der Endposition
+            ' der rechten Spalte verglichen (Math.Max), damit der folgende Zahlungstext nie mit
+            ' diesem Block kollidiert.
             ' Nur bei echten, positiven Rechnungen sinnvoll (nicht bei Gutschriften/0€-Rechnungen -
             ' der QR-Code fordert den KUNDEN zum Zahlen auf). Scheitert die Erzeugung aus
             ' irgendeinem Grund, darf das die restliche Rechnung nicht verhindern - deshalb
@@ -551,29 +573,31 @@ Public Class RechnungsDrucker
                             qrBitmap.Save(qrTempPfad, System.Drawing.Imaging.ImageFormat.Png)
                         End Using
 
-                        ' Ganzer Block ca. 10% größer als zuvor (QR 70->77pt, Schrift 7->7,7pt,
-                        ' Zeilenabstand 9->10pt) und mit Rahmen samt kleinem Innenabstand (Polster).
+                        Dim qrBlockTopY As Double = sY
                         Dim qrGroesse As Double = 77
                         Dim rahmenPolster As Double = 7
+                        Dim rahmenRechts As Double = sLblX - 5
                         Dim qrX As Double = mL + rahmenPolster
-                        Dim qrY As Double = sY + rahmenPolster
+                        Dim qrY As Double = qrBlockTopY + rahmenPolster
                         Dim qrImg As XImage = XImage.FromFile(qrTempPfad)
                         currentGfx.DrawImage(qrImg, qrX, qrY, qrGroesse, qrGroesse)
 
-                        Dim zdY As Double = qrY + qrGroesse + 8
-                        Dim rahmenRechts As Double = sLblX - 10
-                        Dim zdMaxWidth As Double = rahmenRechts - qrX - rahmenPolster
+                        ' Zahlungsdaten rechts neben dem QR-Code
+                        Dim zdX As Double = qrX + qrGroesse + 6
+                        Dim zdY As Double = qrY
+                        Dim zdMaxWidth As Double = rahmenRechts - rahmenPolster - zdX
                         Dim fZahldaten As New XFont("Arial", 7.7, XFontStyleEx.Regular)
-                        zdY = DrawWrappedText(currentGfx, "Kontoinhaber: " & firmaName, fZahldaten, bBlack, qrX, zdY, zdMaxWidth, 10)
-                        zdY = DrawWrappedText(currentGfx, "IBAN: " & firmaIBAN, fZahldaten, bBlack, qrX, zdY, zdMaxWidth, 10)
-                        zdY = DrawWrappedText(currentGfx, "BIC: " & firmaBIC, fZahldaten, bBlack, qrX, zdY, zdMaxWidth, 10)
-                        zdY = DrawWrappedText(currentGfx, "Betrag: " & bruttoGesamt.ToString("N2") & " €", fZahldaten, bBlack, qrX, zdY, zdMaxWidth, 10)
-                        zdY = DrawWrappedText(currentGfx, "Verwendungszweck: re-" & reNr, fZahldaten, bBlack, qrX, zdY, zdMaxWidth, 10)
-                        zdY += 4
-                        zdY = DrawWrappedText(currentGfx, "Einfach mit der Banking-App scannen", fZahldaten, bGray, qrX, zdY, zdMaxWidth, 10)
+                        zdY = DrawWrappedText(currentGfx, "Kontoinhaber: " & firmaName, fZahldaten, bBlack, zdX, zdY, zdMaxWidth, 10)
+                        zdY = DrawWrappedText(currentGfx, "IBAN: " & firmaIBAN, fZahldaten, bBlack, zdX, zdY, zdMaxWidth, 10)
+                        zdY = DrawWrappedText(currentGfx, "BIC: " & firmaBIC, fZahldaten, bBlack, zdX, zdY, zdMaxWidth, 10)
+                        zdY = DrawWrappedText(currentGfx, "Betrag: " & bruttoGesamt.ToString("N2") & " €", fZahldaten, bBlack, zdX, zdY, zdMaxWidth, 10)
 
-                        Dim rahmenUnten As Double = zdY + rahmenPolster - 4
-                        currentGfx.DrawRectangle(penBlack, mL, sY, rahmenRechts - mL, rahmenUnten - sY)
+                        ' Bildunterschrift über die volle Breite unter QR-Code + Zahlungsdaten
+                        Dim capY As Double = Math.Max(qrY + qrGroesse, zdY) + 6
+                        capY = DrawWrappedText(currentGfx, "Einfach mit der Banking-App scannen", fZahldaten, bGray, qrX, capY, rahmenRechts - rahmenPolster - qrX, 10)
+
+                        Dim rahmenUnten As Double = capY + rahmenPolster - 4
+                        currentGfx.DrawRectangle(penBlack, mL, qrBlockTopY, rahmenRechts - mL, rahmenUnten - qrBlockTopY)
 
                         qrBlockBottomY = rahmenUnten
                     End Using
@@ -589,27 +613,6 @@ Public Class RechnungsDrucker
                     End Try
                 End Try
             End If
-
-            DrawRight(currentGfx, "Nettosumme", fBold, bBlack, labelAlignX, sY)
-            DrawRight(currentGfx, nettoGesamt.ToString("N2") & " €", fBold, bBlack, sGesX, sY)
-            sY += 16
-
-            Dim sMwstLblX As Double = sLblX + 50
-
-            ' Steuern werden für jeden tatsächlich vorkommenden Satz angezeigt (nicht nur 7,8%/5,5%,
-            ' falls z.B. eine ältere Rechnung noch einen anderen Satz enthält)
-            For Each kv In nettoBasisProSatz.OrderByDescending(Function(x) x.Key)
-                If kv.Value <> 0 Then
-                    currentGfx.DrawString(FormatMwSt(kv.Key) & " MwSt auf", fSmall, bBlack, sMwstLblX, sY)
-                    DrawRight(currentGfx, kv.Value.ToString("N2") & " €", fSmall, bBlack, sEqX - 5, sY)
-                    currentGfx.DrawString("=", fSmall, bBlack, sEqX, sY)
-                    DrawRight(currentGfx, mwstBetragProSatz(kv.Key).ToString("N2") & " €", fSmall, bBlack, sGesX, sY)
-                    sY += 13
-                End If
-            Next
-
-            currentGfx.DrawLine(penBlack, sLblX, sY - 2, mR, sY - 2)
-            sY += 8
 
             ' Bündig zeichnen:
             DrawRight(currentGfx, "Bruttosumme", fBold, bBlack, labelAlignX, sY + 5)
